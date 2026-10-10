@@ -1,0 +1,24 @@
+# Local PostgreSQL 16 for development and integration tests.
+#   docker compose up -d db
+# Creates the coogcrave_dev and coogcrave_test databases plus the migrator/app roles on first start.
+# Credentials are local-only placeholders matching .env.example.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/sql:/bootstrap:ro
+      - ./scripts/docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-coogcrave-bootstrap.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

@@ -1,0 +1,24 @@
+# Build scripts are blocked by default in pnpm 10; nothing in this project needs them.
+ignoredBuiltDependencies:
+  - esbuild # drizzle-kit; its platform binary installs via optional deps, postinstall not needed
+  - sharp
+  - unrs-resolver
+
+# eslint-plugin-react, eslint-plugin-jsx-a11y and eslint-plugin-import (pulled in by
+# eslint-config-next 16.4) declare peer support only up to ESLint 9, which is end-of-life.
+# They were verified to run correctly under ESLint 10.12 on 2026-10-10 (see docs/CODE_REVIEW_LOG.md).
+# Remove these overrides once the plugins publish ESLint 10 peer ranges.
+peerDependencyRules:
+  allowedVersions:
+    eslint-plugin-react>eslint: "10"
+    eslint-plugin-jsx-a11y>eslint: "10"
+    eslint-plugin-import>eslint: "10"
+
+# Accepted audit findings. Each entry needs a reason and a review date; CI still fails on any other high.
+#  - GHSA-vfj7-8cjw-p6xm (braces ReDoS, high, no patched release): reached only via
+#    eslint-config-next > @next/eslint-plugin-next > fast-glob. Dev-time lint tool that only expands
+#    our own glob patterns; not in the production dependency tree (`pnpm why braces --prod` is empty).
+#    Review by 2026-12-31 or when eslint-config-next updates fast-glob.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-vfj7-8cjw-p6xm

@@ -1,0 +1,30 @@
+# dependencies
+/node_modules
+.pnpm-store/
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+*.tsbuildinfo
+
+# testing
+/coverage
+/playwright-report
+/test-results
+/blob-report
+/playwright/.cache
+
+# local data (Postgres data dir, dev mail outbox)
+/.data
+
+# env files: only the example is committed (docs/THREAT_MODEL.md T-26)
+.env
+.env.*
+!.env.example
+
+# misc
+.DS_Store
+*.pem
+*.log
+.vercel
