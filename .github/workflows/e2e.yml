@@ -1,0 +1,72 @@
+name: E2E
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+  CI: "true"
+
+jobs:
+  e2e:
+    name: Playwright (mobile + desktop Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      APP_ENV: test
+      APP_URL: http://localhost:3000
+      DATABASE_URL: postgresql://coogcrave_app:local_app_pw@localhost:5432/coogcrave_dev
+      MIGRATOR_DATABASE_URL: postgresql://coogcrave_migrator:local_migrator_pw@localhost:5432/coogcrave_dev
+      LOG_LEVEL: warn
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Install (locked)
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium for Playwright
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Create least-privilege roles and databases
+        run: psql -h localhost -U postgres -v ON_ERROR_STOP=1 -f scripts/sql/bootstrap-roles.sql
+        env:
+          PGPASSWORD: postgres
+      - name: Apply migrations
+        run: pnpm db:migrate
+      - name: Build
+        run: pnpm build
+      - name: Run E2E tests
+        run: pnpm test:e2e
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
