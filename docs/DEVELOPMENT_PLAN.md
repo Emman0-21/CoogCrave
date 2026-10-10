@@ -1,6 +1,6 @@
 # CoogCrave — Development Plan
 
-> **Status:** Draft for Phase 1 architecture checkpoint · **Last updated:** 2026-10-10
+> **Status:** Approved at Phase 1 (defaults applied to D2–D7); Phase 2 complete pending review · **Last updated:** 2026-10-10
 > Requirement IDs (AUTH-, CAT-, CART-, ORD-, DLV-, TRK-, NTF-, REV-, ADM-, NFR-) refer to `PRODUCT_REQUIREMENTS.md`; threat IDs (T-xx) to `THREAT_MODEL.md`.
 
 ---
@@ -20,7 +20,7 @@ Defaults are what the plan assumes if there's no answer.
 
 | # | Decision | Default | Impact if changed |
 |---|---|---|---|
-| D1 | Approve the stack (Next.js + Postgres + Prisma + Better Auth) **or** switch to a Spring Boot API + Next.js frontend | Next.js monolith | Spring Boot: domain/API/DB docs carry over; Phase 2 and folder structure change; ~+20–30% effort |
+| D1 | Approve the stack (Next.js + Postgres + Better Auth) **or** switch to a Spring Boot API + Next.js frontend | **Approved: Next.js monolith.** ORM changed from Prisma to Drizzle during Phase 2, with approval (`ARCHITECTURE.md` §16) | — |
 | D2 | Real UH venue names vs fictional (Q1) | Real on-campus names, sample menus/prices, no logos, disclaimers | Fictional removes trademark/affiliation risk entirely |
 | D3 | UH-only sign-up domains (Q2) | `uh.edu`, `cougarnet.uh.edu` | — |
 | D4 | Demo shows Kitchen Console live vs auto-advance (Q3) | Kitchen Console live; auto-advance available for rehearsal | — |
@@ -48,9 +48,9 @@ Effort is a rough range of focused hours for one developer working with Claude; 
 ### Phase 2 — Project foundation
 **Tasks**
 - Scaffold Next.js 16.4 (App Router, `src/`), TypeScript 6.0.3 strict, exact version pins, `engines` (Node ≥ 22.12), `packageManager` (pnpm 10).
-- ESLint (typescript-eslint, Next rules, import-boundary rules from `ARCHITECTURE.md` §4, bans on `dangerouslySetInnerHTML` and `$queryRawUnsafe`), Prettier.
+- ESLint (typescript-eslint, Next rules, import-boundary rules from `ARCHITECTURE.md` §4, bans on `dangerouslySetInnerHTML` and `sql.raw()`), Prettier.
 - Vitest (unit + integration projects, v8 coverage with thresholds on `server/domain` and `server/services`), React Testing Library, Playwright config.
-- Prisma 7.10 with `pg` adapter, `prisma.config.ts`, empty initial migration; `docker-compose.yml` for Postgres 16; scripts to create migrator/app roles locally.
+- Drizzle ORM + drizzle-kit (`drizzle.config.ts`, empty migrations journal); `docker-compose.yml` for Postgres 16; scripts to create migrator/app roles locally and without Docker.
 - `server/config.ts` (Zod env parsing), `logger.ts` (pino + redaction), `http/withRoute` (request ID, size limit, JSON + Origin checks, error envelope), security headers.
 - Design tokens (`@theme`), base layout, landing page shell with disclaimer, `/api/health`.
 - GitHub Actions: format, lint, typecheck, unit, integration (Postgres service), build, `pnpm audit`, migration drift check; separate E2E job.
@@ -116,7 +116,7 @@ Effort is a rough range of focused hours for one developer working with Claude; 
 2. `pnpm format:check` · `pnpm lint` · `pnpm typecheck`
 3. `pnpm test:unit` (with coverage thresholds)
 4. `pnpm test:integration` against a Postgres 16 service container
-5. `prisma migrate diff` drift check
+5. `pnpm db:drift` (schema vs. committed migrations) and `pnpm db:migrate` on a fresh database
 6. `pnpm build`
 7. `pnpm audit --audit-level=high`; fail if any `.env` file is tracked
 
@@ -147,8 +147,8 @@ Cut from the top first. The bottom block is never cut because it's what makes th
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
 | Deadline unknown (D5) | — | High | Ladder in §6; demo path built first in every phase |
-| Very recent library versions (Next 16.4, Prisma 7.10, Better Auth 1.7, TS 6) have API changes vs. tutorials | Medium | Medium | Exact pins; read installed versions' docs; Phase 2 spike proves Prisma + Better Auth + Next work together before feature work |
-| Prisma CLI `latest` tag is an RC (8.0.0-rc.22) | High if unpinned | Medium | Pin `prisma` and `@prisma/client` to 7.10.0 together |
+| Very recent library versions (Next 16.4, Drizzle 0.45, Better Auth 1.7, TS 6) have API changes vs. tutorials | Medium | Medium | Exact pins; read the docs bundled with installed versions (Next.js ships its own in `node_modules/next/dist/docs`); first Phase 3 task proves Better Auth + Drizzle + Next together |
+| Build sandbox egress policy blocks some hosts (`binaries.prisma.sh`, `cdn.playwright.dev`, Google Fonts) | Certain | Medium | Resolved for Prisma (→ Drizzle) and fonts (self-hosted). E2E browser tests run only in CI; anything that needs a blocked host is reported, not worked around |
 | No Docker daemon in this sandbox | Certain | Low | Native Postgres here, service container in CI, compose file for teammates |
 | No hosting/email credentials (D6) | Medium | Medium | Local file outbox; deployment documented as blocked until credentials exist |
 | Concurrency test flakiness | Low | Medium | Deterministic setup; 20× repeat run at Phase 5 checkpoint |

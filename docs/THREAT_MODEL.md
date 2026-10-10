@@ -1,6 +1,6 @@
 # CoogCrave — Threat Model
 
-> **Status:** Draft for Phase 1 architecture checkpoint · **Last updated:** 2026-10-10
+> **Status:** Approved at Phase 1; control status updated after Phase 2 (§5) · **Last updated:** 2026-10-10
 > Method: assets → actors → trust boundaries → threats (STRIDE) with a mitigation **and a way to verify it**. A control without a verification is listed as unverified, not as done. Re-reviewed at the end of every phase (`CODE_REVIEW_LOG.md`).
 
 ---
@@ -85,7 +85,7 @@ Verification types: **U** unit test · **I** integration test (real DB) · **E**
 |---|---|---|---|---|---|
 | T-20 | Tampering | CSRF on cookie-authenticated mutations | `SameSite=Lax`; `Origin` check on all mutations; JSON-only bodies (cross-site forms can't send `application/json` without a preflight) | I: mutation with foreign `Origin` → `403`; form-encoded → `415` | 2 |
 | T-21 | Tampering / info disclosure | Stored XSS through delivery instructions, reviews, names, menu text | React output escaping; **lint ban on `dangerouslySetInnerHTML`**; length limits; Content-Security-Policy (`script-src 'self'` + nonces, `object-src 'none'`, `frame-ancestors 'none'`) | L + E: a `<script>` payload renders as text · I: CSP header present | 2, 7 |
-| T-22 | Tampering | SQL injection | Prisma parameterized queries; raw SQL only through tagged-template `$queryRaw`; **lint ban on `$queryRawUnsafe` / `$executeRawUnsafe`** | L + R | 2 |
+| T-22 | Tampering | SQL injection | Drizzle query builder (parameterized); raw SQL only through the `sql` tagged template, which parameterizes interpolations; **lint ban on `sql.raw()`** | L + R | 2 |
 | T-23 | Info disclosure | Over-exposed API responses (returning Prisma rows with hashes or emails) | Explicit DTO mappers per projection; never return ORM objects | I: response shape assertions · R | 3+ |
 | T-24 | DoS | Oversized bodies, unbounded lists, request floods | 16 KB body limit; pagination caps (≤ 50); rate limits | I: `413`, `429` | 2–3 |
 | T-25 | Info disclosure | Missing security headers / clickjacking | `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `frame-ancestors 'none'`, HSTS in deployed envs, `Permissions-Policy` | I: header assertions | 2 |
@@ -98,28 +98,46 @@ Verification types: **U** unit test · **I** integration test (real DB) · **E**
 | T-27 | Info disclosure | PII/secrets in logs | pino redaction (`password`, tokens, cookies, `authorization`, `deliveryInstructions`); never log bodies | U: logger redaction test | 2 |
 | T-28 | Elevation | App DB credentials used for DDL or audit tampering | Separate migrator/app roles; app role has DML only and INSERT/SELECT on `audit_events` | I (tests run as app role) | 3 |
 | T-29 | Tampering | Demo reset or demo seed run against production | Requires `APP_ENV ≠ production` **and** `DEMO_RESET_ENABLED=true` **and** admin; endpoint returns `404` otherwise; seed script refuses in production; audited | I: with `APP_ENV=production` → `404` | 6 |
-| T-30 | Elevation | Vulnerable dependency | Exact pins + lockfile; `pnpm audit --audit-level=high` fails CI; Dependabot; dependencies justified in `ARCHITECTURE.md` | C | 2 |
+| T-30 | Elevation | Vulnerable dependency | Exact pins + lockfile; `pnpm audit --audit-level=high` fails CI (accepted exceptions listed with reason and review date in `pnpm-workspace.yaml`); Dependabot weekly updates; dependencies justified in `ARCHITECTURE.md` | C | 2 |
 | T-31 | Info disclosure | Error responses leak stack traces or SQL | Central error mapper; `500` returns code + requestId only | I | 2 |
 | T-32 | Reputation | UI implies UH or restaurant endorsement | Disclaimers (landing, footer, restaurant cards); no UH logos/marks; "Sample data" badges | R: copy checklist in PR template | 4, 7 |
 
 ---
 
-## 5. OWASP Top 10 coverage (checklist from the master prompt)
+## 5. Control status
 
-| Prompt checklist item | Threat IDs | Status at Phase 1 |
+Status moves from **Designed** → **Implemented** (code exists) → **Verified** (its listed test or check passes). Nothing is called Verified on the strength of a library being installed.
+
+### After Phase 2
+
+| ID | Status | Evidence |
 |---|---|---|
-| Broken access control | T-01 – T-07, T-12 | Designed |
-| Injection | T-22 | Designed |
-| Cross-site scripting | T-21 | Designed |
-| CSRF | T-20 | Designed |
-| Insecure session management | T-14 – T-18 | Designed |
-| Exposed credentials | T-26, T-28 | Designed |
-| Sensitive data leakage | T-05, T-23, T-27, T-31 | Designed |
-| Missing server-side validation | T-02, T-08, route wrapper (strict Zod) | Designed |
-| Unsafe dependency usage | T-30 | Designed |
-| Insecure API endpoints | T-03, T-24, T-25, T-29 | Designed |
+| T-20 CSRF | **Verified** (route layer) | `tests/unit/with-route.test.ts`: foreign `Origin` → 403, cross-site `Sec-Fetch-Site` → 403, form-encoded body → 415. `SameSite` cookies arrive with sessions in Phase 3. |
+| T-21 XSS / CSP | **Verified** (headers, lint) · E2E pending | Unit tests assert the policy; on a running build every `<script>` carried the request's nonce; lint bans `dangerouslySetInnerHTML` (planted violation caught). The browser-level "no CSP violations" E2E test runs in CI only: the build sandbox can't download Chromium. |
+| T-22 SQL injection | **Implemented** (lint) | Planted `sql.raw()` caught by lint. Becomes Verified with Phase 3 query code review. |
+| T-24 Oversized bodies | **Verified** (body limit) | 413 on declared and streamed oversize bodies. Pagination caps and rate limits arrive with list endpoints and Phase 3. |
+| T-25 Security headers | **Verified** | Unit tests and `curl` against a production build: nosniff, referrer, framing, permissions, COOP; HSTS only when `APP_ENV` is preview/production; no `X-Powered-By`. |
+| T-26 Committed secrets | **Implemented** | `.env*` git-ignored except the example; `pnpm check:tracked-env` in CI. GitHub secret scanning and push protection: enable once the remote exists. |
+| T-27 Logs | **Verified** | Redaction test covers passwords, tokens, cookies, auth headers, emails, delivery instructions; request bodies never logged. |
+| T-28 DB privileges | **Verified** (schema-level) | Integration tests as the app role: can't create, alter, drop, or truncate. Append-only `audit_events` grant arrives with the table in Phase 3. |
+| T-30 Dependencies | **Implemented** | Audit in CI. Production dependencies: 0 known vulnerabilities. Dev-only: 1 high accepted with written reason (braces via Next's lint plugin, no patched release), 1 moderate (esbuild dev server via drizzle-kit, never run). |
+| T-31 Error leakage | **Verified** | 500s return code + request ID only; health check hides DB error text. |
+| All others | Designed | Land in the phase listed in §4. |
 
-"Designed" means the control is specified, not implemented. Status moves to **Implemented** when code lands and **Verified** only when its listed test/check passes in CI.
+### OWASP checklist from the master prompt
+
+| Prompt checklist item | Threat IDs | Status after Phase 2 |
+|---|---|---|
+| Broken access control | T-01 – T-07, T-12 | Designed (Phase 3+) |
+| Injection | T-22 | Implemented (lint guard) |
+| Cross-site scripting | T-21 | Verified at header/lint level; E2E in CI |
+| CSRF | T-20 | Verified at route level |
+| Insecure session management | T-14 – T-18 | Designed (Phase 3) |
+| Exposed credentials | T-26, T-28 | Implemented / verified (schema-level grants) |
+| Sensitive data leakage | T-05, T-23, T-27, T-31 | T-27, T-31 verified; T-05, T-23 Phase 3+ |
+| Missing server-side validation | T-02, T-08, route wrapper (strict Zod) | Route-level validation verified; business rules Phase 3+ |
+| Unsafe dependency usage | T-30 | Implemented |
+| Insecure API endpoints | T-03, T-24, T-25, T-29 | T-24 (body limit), T-25 verified; others Phase 3+ |
 
 ---
 

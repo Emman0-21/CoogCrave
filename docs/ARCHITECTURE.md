@@ -1,7 +1,7 @@
 # CoogCrave — Architecture
 
-> **Status:** Draft for Phase 1 architecture checkpoint · **Last updated:** 2026-10-10
-> Describes the *intended* architecture. Once code exists, this file is updated to match what is actually implemented (see `PROGRESS.md` for drift notes).
+> **Status:** Approved at Phase 1; revised during Phase 2 to match the implementation · **Last updated:** 2026-10-10
+> Sections marked *(planned)* describe later phases. Everything else reflects code in the repository. Decision changes are logged in §16.
 
 ---
 
@@ -14,6 +14,7 @@
 | Node / pnpm | Node 22.22.0, pnpm 10.28.0 | Node 22 LTS is the baseline |
 | PostgreSQL | 16.15 server binaries installed | Integration tests can run against a real local Postgres |
 | Docker | CLI present, **no daemon** in this sandbox | `docker-compose.yml` is provided for teammates' machines; this environment and CI use native Postgres / a CI service container |
+| Egress policy (found in Phase 2) | This build sandbox blocks `binaries.prisma.sh`, `cdn.playwright.dev`, and Google Fonts | Drove the Drizzle and self-hosted-font decisions; E2E tests run in CI, not in this sandbox (§16) |
 
 ---
 
@@ -27,15 +28,17 @@ Every row answers *why* and *what we give up*. Versions are checked against the 
 | Language | **TypeScript 6.0.3**, `strict: true` | Type safety across UI, API, and DB layer. | TS 7.0 is out, but `typescript-eslint` 8.71 supports TypeScript `< 6.1.0`; we stay on 6.0.x until linting supports 7. |
 | API style | **Versioned REST route handlers** under `/api/v1` | Documented, testable contracts (the prompt requires method/URL specs); reusable by a future mobile app. | More boilerplate than Server Actions; we do not use Server Actions for mutations. |
 | Database | **PostgreSQL 16** | Relational integrity, transactions, partial unique indexes and check constraints — all used for correctness (§7). | Requires a hosted Postgres for deployment. |
-| ORM / migrations | **Prisma 7.10.0** (`prisma` and `@prisma/client` pinned identically) with the `pg` driver adapter | Typed client, mature migration workflow, good team familiarity. | Some constraints (partial indexes, check constraints) are written as SQL inside migrations. **Note:** the `prisma` CLI's npm `latest` tag currently points at `8.0.0-rc.22` while `@prisma/client` is `7.10.0`, and Better Auth supports Prisma ≤ 7 — so an unpinned install would produce a mismatched toolchain. |
-| Auth | **Better Auth 1.7.7** (email + password, email verification, password reset, DB sessions, built-in rate limiting) | Covers every AUTH requirement without hand-rolling crypto; sessions are server-side rows we can revoke. | Adds its own tables (`user`, `session`, `account`, `verification`). Auth.js was rejected: v5 is still a beta tag on npm and its credentials flow lacks built-in verification/reset. |
+| ORM / migrations | **Drizzle ORM 0.45.4 + drizzle-kit 0.31.11** on `pg` 8.23 (changed from Prisma in Phase 2, see §16) | Schema in TypeScript that expresses our partial unique indexes and CHECK constraints natively; generates plain, reviewable SQL migrations; pure npm packages with no engine binaries; SQL-shaped query builder suits compare-and-set updates. | Pre-1.0 (pinned exactly). No down-migrations (rollback = new forward migration). |
+| Auth *(Phase 3)* | **Better Auth 1.7.7** (email + password, email verification, password reset, DB sessions, built-in rate limiting) with its Drizzle adapter | Covers every AUTH requirement without hand-rolling crypto; sessions are server-side rows we can revoke. | Adds its own tables (`user`, `session`, `account`, `verification`). Auth.js was rejected: v5 is still a beta tag on npm and its credentials flow lacks built-in verification/reset. |
+| Rendering model | **Cache Components off**; every page rendered per request (`await connection()` in the root layout) | Required by the nonce-based CSP (§8, THREAT_MODEL T-21). Next.js documents nonce CSP as incompatible with the prerendered static shell. Almost every page depends on the signed-in user anyway. | No static shells or partial prefetching. Revisit before a Next.js major where Cache Components can't be disabled. |
+| Fonts | **Archivo** (variable width, display) and **Atkinson Hyperlegible Next** (body), self-hosted from pinned `@fontsource-variable` packages via `next/font/local` | No third-party requests (keeps CSP `font-src 'self'`, better privacy); builds work without internet access. Atkinson was designed for legibility. | Font files come from `node_modules` at build time. |
 | Validation | **Zod 4** | Runtime validation at every trust boundary; the same schema types the client form and the server handler. | — |
 | Styling / UI | **Tailwind CSS 4.3** with design tokens in `@theme`; **shadcn/ui** components (source copied into repo, Radix primitives); `lucide-react` icons; `sonner` toasts | Accessible primitives (focus management, ARIA) without a heavy component dependency; tokens keep colors in one place. | We own the copied component code. |
 | Client data | **TanStack Query 5** | Polling with automatic pause when the tab is hidden, retries, mutation loading/error states across ~25 screens. | One more dependency; justified by the amount of async UI state. |
 | Forms | `react-hook-form` + Zod resolver | Accessible forms with field-level errors from the shared schemas. | — |
 | Logging | **pino 10** with redaction | Structured JSON logs; redaction paths keep secrets/PII out of logs. | — |
 | Tests | **Vitest 5** (unit + integration against real Postgres), **React Testing Library**, **Playwright 1.64** (E2E) | Fast unit tests; real-DB integration tests catch constraint and concurrency bugs that mocks hide. | Integration tests need a Postgres instance locally and in CI. |
-| Quality | ESLint 10 + typescript-eslint, Prettier 3.9 | Standard, CI-enforced. | — |
+| Quality | **ESLint 10.12** + typescript-eslint 8.71 (type-aware rules), full jsx-a11y recommended set, Prettier 3.9 with the Tailwind plugin | Lint enforces layering, accessibility, and security rules (§4, THREAT_MODEL T-21/T-22). ESLint 9 is end-of-life upstream. | Three Next.js lint plugins still declare ESLint ≤ 9 peers; they were verified working on 10 and the peer ranges are overridden in `pnpm-workspace.yaml` with a removal note. |
 | Package manager | **pnpm 10** with committed lockfile; `--frozen-lockfile` in CI | Reproducible installs, strict dependency resolution. | Teammates need pnpm (`corepack enable`). |
 | CI | **GitHub Actions** | Prompt requirement; free for public repos. | — |
 | Hosting (proposed) | **Vercel** (app) + **Neon** (Postgres), email via **Resend** | Zero-ops, free tiers, preview deployments. | Needs accounts/credentials — Phase 8 blocker until provided (Q5). |
@@ -43,7 +46,7 @@ Every row answers *why* and *what we give up*. Versions are checked against the 
 ### Alternatives considered
 
 - **Spring Boot API + Next.js frontend.** A strong choice for a Java-heavy team and closer to a typical enterprise backend. Not the default because it means two deployables, two languages, and duplicated validation rules. If the team is much faster in Java, this is the one decision worth revisiting before Phase 2 — the domain model, API spec, and state machine in these docs carry over unchanged.
-- **Drizzle instead of Prisma.** Lighter and closer to SQL; still pre-1.0. Prisma chosen for migration tooling and familiarity.
+- **Prisma 7.10 (the Phase 1 choice).** Mature tooling, but every CLI command, including `prisma generate`, downloads a native engine from `binaries.prisma.sh`, which the build sandbox blocks, so no database code could be generated or verified there. It also needs hand-written SQL for our partial indexes and CHECK constraints. Replaced by Drizzle with approval (§16).
 - **WebSockets / SSE instead of polling.** Real-time push needs either a stateful server or a third-party service. Polling every ~5 s is accurate enough for food delivery and works on serverless with zero extra infrastructure. The tracking endpoint is designed so SSE can be added later without changing the data model.
 - **Supabase (auth + DB bundle).** Fine, but couples auth to the DB vendor; Better Auth keeps both portable.
 
@@ -76,7 +79,7 @@ flowchart LR
   AuthH --> DB
   Svc --> Dom
   Svc --> Ports
-  Svc -- "Prisma (transactions)" --> DB
+  Svc -- "Drizzle (transactions)" --> DB
   Ports --> Mail
 ```
 
@@ -88,11 +91,13 @@ flowchart LR
 
 ```
 coogcrave/
-├─ prisma/
-│  ├─ schema.prisma
-│  ├─ migrations/              # includes raw SQL for partial indexes / check constraints
-│  └─ seed/                    # deterministic seed + demo fixtures
+├─ db/
+│  ├─ migrations/              # SQL generated by drizzle-kit from src/server/db/schema (committed, reviewed)
+│  └─ seed/                    # (Phase 3) deterministic seed + demo fixtures
+├─ drizzle.config.ts           # drizzle-kit: schema location, output folder, migrator connection
+├─ scripts/                    # local Postgres, role bootstrap SQL, CI checks (drift, tracked .env)
 ├─ src/
+│  ├─ proxy.ts                 # per-request CSP nonce (not an auth boundary)
 │  ├─ app/                     # routes only: layout, pages, loading/error states
 │  │  ├─ (public)/             # landing, sign-in, register, verify, reset
 │  │  ├─ (customer)/           # restaurants, cart, checkout, orders, profile
@@ -109,9 +114,11 @@ coogcrave/
 │  ├─ shared/                  # Zod schemas, DTO types, enums — safe for client and server
 │  └─ server/                  # never imported by client code (enforced with `server-only`)
 │     ├─ config.ts             # env parsed with Zod; app fails fast on bad config
-│     ├─ db.ts                 # Prisma client singleton
-│     ├─ auth/                 # Better Auth config, getActor(), guards
-│     ├─ http/                 # route wrapper: auth, validation, size limit, rate limit, errors, logging
+│     ├─ db/client.ts          # pg pool + Drizzle instance (app role); db/schema/ holds table definitions
+│     ├─ security/headers.ts   # CSP builder, static security headers, nonce generation
+│     ├─ health.ts             # /api/health logic with injectable dependencies
+│     ├─ auth/                 # (Phase 3) Better Auth config, getActor(), guards
+│     ├─ http/                 # route wrapper: validation, size limit, CSRF origin check, errors, logging (+ auth, rate limit in Phase 3)
 │     ├─ domain/               # PURE: pricing, order state machine, policies, hours — no I/O
 │     ├─ services/             # use cases: cart, checkout, orders, delivery, courier, admin, notifications, demo
 │     ├─ payments/             # PaymentGateway port + DemoPaymentGateway
@@ -119,41 +126,45 @@ coogcrave/
 │     ├─ rate-limit/           # RateLimiter port + Postgres implementation
 │     └─ logger.ts
 ├─ tests/
-│  ├─ unit/                    # domain
-│  ├─ integration/             # services + route handlers against real Postgres
-│  └─ e2e/                     # Playwright journeys
+│  ├─ unit/                    # pure logic and HTTP pipeline (dependencies injected)
+│  ├─ component/               # React Testing Library in jsdom
+│  ├─ integration/             # services + route handlers against real Postgres (app role)
+│  ├─ e2e/                     # Playwright journeys
+│  └─ support/                 # env setup, DB helpers, server-only stub
 └─ docs/
 ```
 
 **Dependency rules** (enforced by ESLint `no-restricted-imports`, checked in CI):
 
-1. `server/domain` imports nothing from Prisma, Next.js, or other `server/*` folders. Pure functions in, values out → trivially unit-testable.
+1. `server/domain` imports nothing from Drizzle, `pg`, Next.js, React, or other `server/*` folders. Pure functions in, values out → trivially unit-testable.
 2. `server/services` may use `domain`, `db`, and ports. They own transaction boundaries and authorization.
 3. `app/api/v1/**` route handlers only parse the request, call one service, and map the result. No business rules.
-4. `app/**` pages and `components/**` never import `server/db` directly.
+4. `app/**` never imports `server/db`, Drizzle, or `pg`; `components/**`, `client/**`, and `shared/**` never import anything from `server/`.
 5. `shared/` contains no server secrets and no I/O.
+
+Each rule was verified by planting a violation and confirming ESLint reports it (Phase 2 review).
 
 > **In plain terms:** the domain layer is the recipe book, services are the kitchen that follows recipes and touches the pantry (DB), and route handlers are the front counter that takes orders and hands back food. The counter never improvises recipes.
 
-We deliberately do **not** add a repository layer over Prisma — Prisma already isolates SQL, and an extra abstraction would add files without adding testability (services are tested against a real DB).
+We deliberately do **not** add a repository layer over Drizzle. Its query builder already isolates SQL, and an extra abstraction would add files without adding testability (services are tested against a real DB).
 
 ---
 
 ## 5. Request lifecycle (`/api/v1`)
 
-Every route handler is wrapped by `withRoute(options, handler)`:
+Every route handler is wrapped by `withRoute(options, handler)` (`src/server/http/with-route.ts`). Steps 1–3 and 6–9 are implemented and tested; 4–5 arrive in Phase 3.
 
-1. Assign `requestId` (from `x-request-id` or generated); attach to logger and response header.
-2. Reject bodies over the size limit (default 16 KB) and non-JSON mutations (`415`).
-3. For mutations, verify `Origin` matches the app origin (CSRF defense in depth; see `THREAT_MODEL.md`).
-4. Resolve session → `Actor` (`userId`, `role`, `emailVerified`, `suspended`, `courier: { status, isOnline } | null`). Enforce the route's auth level: `public | user | courier | admin`.
-5. Apply rate limit (if configured for the route).
-6. Validate params, query, and body with Zod (`.strict()` — unknown fields rejected, which blocks mass assignment).
-7. Call the service with `(actor, input)`.
-8. Map domain errors to HTTP using one table (`DomainError.code → status`), producing the standard error envelope (`API_SPEC.md` §1).
-9. Log one structured line: method, route, status, duration, requestId, userId — never bodies.
+1. Assign `requestId`: reuse the caller's `x-request-id` only if it matches `[A-Za-z0-9_-]{8,64}` (safe to echo into logs and headers), otherwise generate one. Attach it to a child logger and the response header.
+2. For mutations (`POST/PUT/PATCH/DELETE`), CSRF defense in depth: reject if `Origin` is present and isn't the app origin, or if `Sec-Fetch-Site` is present and isn't `same-origin`/`none`. Requests with neither header come from non-browser clients, which can't ride a victim's cookies.
+3. Validate path params (a malformed ID is `404`, so probing learns nothing) and query parameters (`400`).
+4. *(Phase 3)* Resolve session → `Actor` (`userId`, `role`, `emailVerified`, `suspended`, `courier: { status, isOnline } | null`). Enforce the route's auth level: `public | user | courier | admin`.
+5. *(Phase 3)* Apply the route's rate limit.
+6. If the route declares a body schema: require `application/json` (`415`), enforce the size limit (default 16 KB, `413`) on the declared length **and** on the bytes actually streamed, parse JSON, and validate with a strict Zod object (unknown fields rejected, which blocks mass assignment).
+7. Call the handler with `{ request, params, query, body, requestId, log }`.
+8. Map `AppError` codes to HTTP through one table (`ERROR_STATUS`) and the standard error envelope (`API_SPEC.md` §1). A stray `ZodError` maps to `400`.
+9. Log one structured line: method, path, status, duration, requestId (userId from Phase 3), never bodies or query strings.
 
-Unexpected exceptions return `500 INTERNAL_ERROR` with the `requestId`; the stack trace goes to logs only.
+Unexpected exceptions return `500 INTERNAL_ERROR` with only the `requestId`; the error and stack go to logs. Responses default to `cache-control: no-store`.
 
 ---
 
@@ -280,7 +291,8 @@ Notifications are rows written **inside the same transaction** as the status cha
 
 - **Rendering:** pages are Server Components that load initial data via services (fast first paint, no client waterfall). Interactive islands are Client Components using TanStack Query against `/api/v1`.
 - **Polling:** order tracking refetches every 5 s while non-terminal; courier offers every 10 s while online. Both pause when the tab is hidden and stop at terminal states.
-- **Design tokens** in `src/app/globals.css` via Tailwind 4 `@theme`: brand red scale (cougar-inspired; final hex chosen in Phase 2 with a 4.5:1 contrast check on white), charcoal text, gray surfaces, semantic colors (success/warning/danger/info), radii, spacing, shadows, motion durations. Components reference tokens only — no raw hex values in components (lint rule).
+- **Design tokens** in `src/app/globals.css` via Tailwind 4 `@theme`. The default Tailwind palette is removed (`--color-*: initial`), so only named tokens exist: brand `crave` red (`#c41e3a`, 5.8:1 on white), `asphalt` text (15.1:1), `concrete` surfaces, and status colors, each pairing checked at ≥ 4.5:1. Semantic aliases (`ink`, `ink-muted`, `surface`, `line`, `action`) are what components use. Brand red and danger red are close in hue, so errors always carry an icon and text, never color alone. A lint rule rejects raw hex values in class names.
+- **Type:** Archivo's width axis is part of the identity (wide for headlines, narrow for the second tagline line); Atkinson Hyperlegible Next for body text.
 - **No UH logos, mascots, or wordmarks.** "UH-inspired" means palette and tone only.
 - **States:** every data view ships loading (skeleton), empty, and error states; route-level `loading.tsx` / `error.tsx`.
 - **Motion:** short transitions for feedback; all animation wrapped in `motion-safe:` / disabled under `prefers-reduced-motion`.
@@ -290,28 +302,31 @@ Notifications are rows written **inside the same transaction** as the status cha
 
 ## 12. Configuration and environments
 
-`APP_ENV` ∈ `development | test | preview | production`. Configuration is parsed by Zod at startup; missing or malformed variables stop the app with a clear message.
+`APP_ENV` ∈ `development | test | preview | production`. `src/server/config.ts` validates variables with Zod on first use (lazily, so `next build` doesn't need runtime secrets) and lists every missing or malformed variable **by name only**, never by value.
 
-| Variable | Purpose |
-|---|---|
-| `DATABASE_URL` | Runtime connection (app role, pooled in hosted envs) |
-| `DIRECT_DATABASE_URL` | Migrations (migrator role, direct connection) |
-| `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` | Session signing, app origin |
-| `ALLOWED_EMAIL_DOMAINS` | Sign-up domain allowlist |
-| `MAIL_TRANSPORT` (`file` \| `resend`), `RESEND_API_KEY`, `MAIL_FROM` | Email delivery |
-| `DEMO_RESET_ENABLED`, `DEMO_AUTO_ADVANCE` | Demo tooling; both ignored when `APP_ENV=production` |
-| `SEED_DEMO_PASSWORD` | Password for seeded demo accounts (never in source code; demo seed refuses to run in production) |
-| `LOG_LEVEL` | pino level |
+| Variable | Purpose | Since |
+|---|---|---|
+| `APP_ENV` | Environment name; gates HSTS and demo tooling | Phase 2 |
+| `APP_URL` | Public origin; used by the CSRF origin check and CSP `upgrade-insecure-requests`. Must be https when deployed | Phase 2 |
+| `DATABASE_URL` | Runtime connection as the app role (pooled in hosted envs) | Phase 2 |
+| `MIGRATOR_DATABASE_URL` | Migrations as the migrator role (read by `drizzle.config.ts`, not by the app) | Phase 2 |
+| `TEST_DATABASE_URL`, `TEST_MIGRATOR_DATABASE_URL` | Integration tests; database name must end in `_test` | Phase 2 |
+| `DB_POOL_MAX`, `LOG_LEVEL`, `GIT_SHA` | Pool size (default 10), pino level, build version reported by `/api/health` | Phase 2 |
+| `BETTER_AUTH_SECRET` | Session signing | Phase 3 |
+| `ALLOWED_EMAIL_DOMAINS` | Sign-up domain allowlist | Phase 3 |
+| `MAIL_TRANSPORT` (`file` \| `resend`), `RESEND_API_KEY`, `MAIL_FROM` | Email delivery | Phase 3 |
+| `DEMO_RESET_ENABLED`, `DEMO_AUTO_ADVANCE` | Demo tooling; both ignored when `APP_ENV=production` | Phase 6 |
+| `SEED_DEMO_PASSWORD` | Password for seeded demo accounts (never in source code; demo seed refuses to run in production) | Phase 3 |
 
-`.env.example` documents all of these with safe placeholder values (Phase 2).
+`.env.example` documents the variables in use, with local-only placeholder values. `APP_ENV` is also read at **build** time (HSTS headers are baked into the build), so deployments must set it for the build step too.
 
-**Least-privilege database roles:** `coogcrave_migrator` owns the schema and runs migrations; `coogcrave_app` has only `SELECT/INSERT/UPDATE/DELETE` on application tables and **only `SELECT/INSERT` on `audit_events`**, making the audit log append-only at the database level.
+**Least-privilege database roles** (`scripts/sql/bootstrap-roles.sql`, used locally, in Docker, and in CI): `coogcrave_migrator` owns the databases and the `public` schema and runs migrations; `coogcrave_app` gets `SELECT/INSERT/UPDATE/DELETE` on tables the migrator creates (via default privileges) and nothing else. Verified by integration tests: the app role can't create, alter, drop, or truncate tables. In Phase 3, `audit_events` additionally gets **only `SELECT/INSERT`** for the app role, making the audit log append-only at the database level.
 
 ---
 
 ## 13. Observability
 
-- pino JSON logs with `requestId`, `userId`, route, status, duration. Redaction paths: `password`, `*.token`, `cookie`, `authorization`, `deliveryInstructions`, `email` (hashed if needed for debugging).
+- pino JSON logs with `requestId`, route, status, duration (`userId` from Phase 3). The keys `password`, `newPassword`, `currentPassword`, `token`, `accessToken`, `refreshToken`, `secret`, `cookie`, `authorization`, `deliveryInstructions`, and `email` are redacted at any depth up to four levels (tested).
 - `GET /api/health` checks DB connectivity (used by deployment smoke tests).
 - Domain events (status changes, admin actions) are already persisted in `order_status_events` and `audit_events`, which doubles as an audit trail.
 
@@ -319,7 +334,7 @@ Notifications are rows written **inside the same transaction** as the status cha
 
 ## 14. Deployment (proposed — Phase 8)
 
-Vercel hosts the Next.js app; Neon hosts Postgres (pooled URL for the app, direct URL for migrations). Migrations run as an explicit CI step (`prisma migrate deploy`) before the production deploy, never at app boot. Preview deployments per PR use a separate database and `APP_ENV=preview`. Nothing is deployed or purchased without approval; until credentials exist, the supported path is local (`DEPLOYMENT.md`, Phase 8).
+Vercel hosts the Next.js app; Neon hosts Postgres (pooled URL for the app, direct URL for migrations). Migrations run as an explicit pipeline step (`pnpm db:migrate`, i.e. `drizzle-kit migrate` as the migrator role) before the production deploy, never at app boot. Preview deployments per PR use a separate database and `APP_ENV=preview`. Nothing is deployed or purchased without approval; until credentials exist, the supported path is local (`DEPLOYMENT.md`, Phase 8).
 
 ---
 
@@ -334,3 +349,16 @@ Vercel hosts the Next.js app; Neon hosts Postgres (pooled URL for the app, direc
 | Real-time tracking | Tracking endpoint returns full state; SSE can replace polling without schema changes |
 | Dispatch / routing | Offers query is isolated in one service function |
 | Native apps | Versioned REST API; auth library supports bearer tokens |
+
+---
+
+## 16. Decision log
+
+| Date | Decision | Why | Approved by |
+|---|---|---|---|
+| 2026-10-10 | Initial stack (§2) | Phase 1 architecture | Emman (Phase 1 checkpoint) |
+| 2026-10-10 | **Prisma → Drizzle** | Every Prisma 7.10 CLI command needs a native engine from `binaries.prisma.sh`, which the build sandbox's egress policy blocks, so no DB code could be generated or tested there. Drizzle installs from npm alone, expresses partial unique indexes and CHECK constraints in the schema, and passed a 10-courier concurrent-accept probe (exactly 1 winner) as the app role before adoption. | Emman (asked mid-Phase 2) |
+| 2026-10-10 | **ESLint 10.12** instead of 9 | ESLint 9 is end-of-life upstream; the three Next.js plugins with stale peer ranges were verified to run on 10 (they flagged planted violations). | Claude, recorded for review |
+| 2026-10-10 | **Cache Components off**, nonce CSP on | Next.js documents nonce-based CSP as incompatible with Cache Components' prerendered shell; XSS defense in depth was prioritized over static-shell performance for a session-heavy app. | Claude, recorded for review |
+| 2026-10-10 | **Self-hosted fonts** | Google Fonts is unreachable from the build sandbox; self-hosting also removes a third-party request and keeps `font-src 'self'`. | Claude, recorded for review |
+| 2026-10-10 | `DIRECT_DATABASE_URL` renamed **`MIGRATOR_DATABASE_URL`** | Names the role rather than the connection type. | Claude, recorded for review |

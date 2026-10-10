@@ -1,0 +1,12 @@
+pnpm-lock.yaml
+.next/
+coverage/
+playwright-report/
+test-results/
+.data/
+db/migrations/
+next-env.d.ts
+
+# Markdown is hand-formatted: Prettier pads every table row to the widest cell,
+# which makes the long-cell tables in docs/ unreadable as raw text and noisy in diffs.
+**/*.md
