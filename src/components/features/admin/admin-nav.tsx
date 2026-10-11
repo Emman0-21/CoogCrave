@@ -7,6 +7,7 @@ const LINKS = [
   { href: "/admin", label: "Today", exact: true },
   { href: "/admin/orders", label: "Orders" },
   { href: "/admin/kitchen", label: "Kitchen" },
+  { href: "/admin/restaurants", label: "Restaurants" },
   { href: "/admin/couriers", label: "Couriers" },
   { href: "/admin/users", label: "Users" },
   { href: "/admin/activity", label: "Activity" },

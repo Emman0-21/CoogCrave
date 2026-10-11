@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminNav } from "@/components/features/admin/admin-nav";
 import { DemoReset } from "@/components/features/admin/demo-reset";
+import { AcceptingOrdersSwitch, MenuItemEditor, parseDollars } from "@/components/features/admin/menu-editor";
 import { ReasonAction } from "@/components/features/admin/reason-action";
 import { StatusBadge } from "@/components/features/admin/status-badge";
 
@@ -138,5 +139,83 @@ describe("admin navigation and status", () => {
   it("names the status in words, not only color", () => {
     render(<StatusBadge status="DELIVERY_FAILED" />);
     expect(screen.getByText("Delivery failed")).toBeInTheDocument();
+  });
+});
+
+describe("menu editing (essentials)", () => {
+  const fries = { id: "item-1", name: "Fries", priceCents: 349, isAvailable: true };
+
+  it("reads prices the way people type them", () => {
+    expect(parseDollars("4")).toBe(400);
+    expect(parseDollars("4.5")).toBe(450);
+    expect(parseDollars("$4.99")).toBe(499);
+    expect(parseDollars("0.05")).toBe(5);
+    for (const bad of ["", "abc", "4.999", "-1", "1,000", "1000"]) expect(parseDollars(bad)).toBeNull();
+  });
+
+  it("changes a price in cents, then reloads the page data", async () => {
+    const user = userEvent.setup();
+    render(<MenuItemEditor item={fries} />);
+    const field = screen.getByLabelText("Price for Fries");
+    expect(field).toHaveValue("3.49");
+    await user.clear(field);
+    await user.type(field, "3.99");
+    respond(200, { ...fries, priceCents: 399 });
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(sent()).toEqual({
+      url: "/api/v1/admin/menu-items/item-1",
+      method: "PATCH",
+      body: { priceCents: 399 },
+    });
+    expect(await screen.findByText("Now $3.99.")).toBeInTheDocument();
+    expect(router.refresh).toHaveBeenCalled();
+  });
+
+  it("refuses a price it can't read or over $100, without sending anything", async () => {
+    const user = userEvent.setup();
+    render(<MenuItemEditor item={fries} />);
+    const field = screen.getByLabelText("Price for Fries");
+    for (const bad of ["three", "150"]) {
+      await user.clear(field);
+      await user.type(field, bad);
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      expect(screen.getByRole("alert")).toHaveTextContent("Enter a price from $0.00 to $100.00");
+      expect(field).toHaveAttribute("aria-invalid", "true");
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("marks an item sold out and back", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<MenuItemEditor item={fries} />);
+    respond(200, { ...fries, isAvailable: false });
+    await user.click(screen.getByRole("button", { name: "Mark Fries sold out" }));
+    expect(sent().body).toEqual({ isAvailable: false });
+
+    rerender(<MenuItemEditor item={{ ...fries, isAvailable: false }} />);
+    expect(screen.getByText("Sold out")).toBeInTheDocument();
+    respond(200, fries);
+    await user.click(screen.getByRole("button", { name: "Put Fries back on the menu" }));
+    expect(sent(1).body).toEqual({ isAvailable: true });
+  });
+
+  it("shows the saved price after the page reloads its data", () => {
+    const { rerender } = render(<MenuItemEditor item={fries} />);
+    rerender(<MenuItemEditor item={{ ...fries, priceCents: 425 }} />);
+    expect(screen.getByLabelText("Price for Fries")).toHaveValue("4.25");
+  });
+
+  it("stops and starts orders for a restaurant", async () => {
+    const user = userEvent.setup();
+    render(<AcceptingOrdersSwitch restaurantId="r1" restaurantName="The Burger Joint" isAcceptingOrders />);
+    expect(screen.getByText("Taking orders")).toBeInTheDocument();
+    respond(200, { id: "r1", isAcceptingOrders: false });
+    await user.click(screen.getByRole("button", { name: "Stop taking orders at The Burger Joint" }));
+    expect(sent()).toEqual({
+      url: "/api/v1/admin/restaurants/r1",
+      method: "PATCH",
+      body: { isAcceptingOrders: false },
+    });
+    expect(router.refresh).toHaveBeenCalled();
   });
 });

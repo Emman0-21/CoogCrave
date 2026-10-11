@@ -35,6 +35,9 @@ import { GET as restaurantsGet } from "@/app/api/v1/restaurants/route";
 import { POST as markReadPost } from "@/app/api/v1/notifications/mark-read/route";
 import { GET as notificationsGet } from "@/app/api/v1/notifications/route";
 import { POST as reviewPost } from "@/app/api/v1/orders/[orderId]/review/route";
+import { PATCH as menuItemPatch } from "@/app/api/v1/admin/menu-items/[menuItemId]/route";
+import { GET as adminRestaurantsGet } from "@/app/api/v1/admin/restaurants/route";
+import { PATCH as restaurantPatch } from "@/app/api/v1/admin/restaurants/[restaurantId]/route";
 import * as schema from "@/server/db/schema";
 
 import { signedInUser } from "../support/auth";
@@ -303,6 +306,34 @@ describe("role-access matrix", () => {
       call: (jar: CookieJar) =>
         markReadPost(appRequest("/api/v1/notifications/mark-read", { body: { all: true }, jar })),
     },
+    {
+      name: "GET /api/v1/admin/restaurants",
+      call: (jar: CookieJar) => adminRestaurantsGet(appRequest("/api/v1/admin/restaurants", { jar })),
+    },
+    {
+      name: "PATCH /api/v1/admin/restaurants/{id}",
+      call: (jar: CookieJar) =>
+        restaurantPatch(
+          appRequest(`/api/v1/admin/restaurants/${missingId}`, {
+            method: "PATCH",
+            body: { isAcceptingOrders: true },
+            jar,
+          }),
+          ctx({ restaurantId: missingId }),
+        ),
+    },
+    {
+      name: "PATCH /api/v1/admin/menu-items/{id}",
+      call: (jar: CookieJar) =>
+        menuItemPatch(
+          appRequest(`/api/v1/admin/menu-items/${missingId}`, {
+            method: "PATCH",
+            body: { isAvailable: true },
+            jar,
+          }),
+          ctx({ menuItemId: missingId }),
+        ),
+    },
     // Last: it gives the student and admin a (pending) courier profile.
     {
       name: "POST /api/v1/courier/application",
@@ -404,6 +435,9 @@ describe("role-access matrix", () => {
     "POST /api/v1/admin/couriers/{id}/decision": adminOnly(404),
     "GET /api/v1/admin/orders": adminOnly(200),
     "POST /api/v1/admin/demo/reset": adminOnly(404),
+    "GET /api/v1/admin/restaurants": adminOnly(200),
+    "PATCH /api/v1/admin/restaurants/{id}": adminOnly(404),
+    "PATCH /api/v1/admin/menu-items/{id}": adminOnly(404),
     // The approved courier already has a profile: 409.
     "POST /api/v1/courier/application": {
       anonymous: U,
