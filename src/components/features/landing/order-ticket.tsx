@@ -17,13 +17,13 @@ export interface SampleTicket {
 /** Illustrative only — shows what order tracking will look like. Not real order data. */
 export const SAMPLE_TICKET: SampleTicket = {
   orderNumber: "CC-7K3Q9",
-  restaurant: "Cougar Grill",
+  restaurant: "Smash & Shake",
   pickup: "Student Center South",
   dropOff: "MD Anderson Library, east entrance",
   courier: "Jordan, on foot",
   items: [
-    { name: "Classic burger, add bacon", quantity: 2 },
-    { name: "Sweet potato fries", quantity: 1 },
+    { name: "Double smash burger, add bacon", quantity: 2 },
+    { name: "Shoestring fries", quantity: 1 },
   ],
   steps: [
     { label: "Order placed", done: true },

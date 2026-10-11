@@ -22,9 +22,16 @@ export default defineConfig({
       include: ["src/server/**/*.ts", "src/proxy.ts"],
       exclude: ["src/server/db/schema/**"],
       reporter: ["text", "html", "json-summary"],
-      // PRD NFR-7: ≥ 80% on server logic. Per-folder thresholds for domain/ and services/ are
-      // added in Phase 3 when those folders exist.
-      thresholds: { lines: 80, branches: 80, functions: 80, statements: 80 },
+      // PRD NFR-7: >= 80% overall on server code, with stricter gates on the business-rule folders.
+      // Coverage is a floor, not proof: every transition and authorization boundary also has explicit tests.
+      thresholds: {
+        lines: 80,
+        branches: 80,
+        functions: 80,
+        statements: 80,
+        "src/server/domain/**": { lines: 95, branches: 90, functions: 100, statements: 95 },
+        "src/server/services/**": { lines: 90, branches: 80, functions: 90, statements: 90 },
+      },
     },
     projects: [
       {

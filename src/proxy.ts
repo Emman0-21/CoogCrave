@@ -1,14 +1,27 @@
+import { getSessionCookie } from "better-auth/cookies";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { buildPageCsp, generateNonce } from "@/server/security/headers";
 
+/** Page areas that need an account. */
+const SIGNED_IN_AREAS = ["/profile", "/admin", "/courier"];
+
 /**
- * Runs before page requests. Its only job today is the per-request CSP nonce.
+ * Runs before page requests: sets the per-request CSP nonce, and sends visitors with no session cookie
+ * straight to sign-in for account-only areas.
  *
- * This is NOT a security boundary for authorization (docs/ARCHITECTURE.md §8): later phases may add
- * signed-out redirects here for UX, but every access decision is enforced again in the service layer.
+ * This is NOT a security boundary (docs/ARCHITECTURE.md §8). It only checks that a cookie exists, not
+ * that it's valid; every page and API route checks the session and role again on the server.
  */
 export function proxy(request: NextRequest): NextResponse {
+  const { pathname, search } = request.nextUrl;
+  const needsAccount = SIGNED_IN_AREAS.some((area) => pathname === area || pathname.startsWith(`${area}/`));
+  if (needsAccount && !getSessionCookie(request, { cookiePrefix: "coogcrave" })) {
+    const signIn = new URL("/sign-in", request.url);
+    signIn.searchParams.set("next", `${pathname}${search}`);
+    return NextResponse.redirect(signIn);
+  }
+
   const nonce = generateNonce();
   const csp = buildPageCsp({
     nonce,

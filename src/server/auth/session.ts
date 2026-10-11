@@ -2,6 +2,7 @@ import "server-only";
 
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
+import { cache } from "react";
 
 import { getDb } from "@/server/db/client";
 import { courierProfiles, users } from "@/server/db/schema";
@@ -49,7 +50,8 @@ export async function getActorFromHeaders(requestHeaders: Headers): Promise<Acto
   };
 }
 
-/** For Server Components and pages: the Actor for the current request, or null. */
-export async function getCurrentActor(): Promise<Actor | null> {
-  return getActorFromHeaders(await headers());
-}
+/**
+ * For Server Components and pages: the Actor for the current request, or null. Cached per request,
+ * so the layout (header) and the page share one session lookup.
+ */
+export const getCurrentActor = cache(async (): Promise<Actor | null> => getActorFromHeaders(await headers()));
