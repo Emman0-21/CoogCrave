@@ -7,6 +7,8 @@ import { Pool } from "pg";
  *  - checks that the demo accounts exist (they come from `pnpm db:seed && pnpm db:seed:demo`)
  *  - opens The Burger Joint around the clock, so the ordering journey doesn't depend on the time of day
  *  - removes earlier runs' orders and closes their courier applications (e2e.* accounts only)
+ *  - makes sure the menu items and restaurants the journeys edit are back on (a failed run may leave
+ *    one sold out or closed)
  */
 export default async function globalSetup(): Promise<void> {
   loadEnv({ path: [".env.local", ".env"], quiet: true });
@@ -36,6 +38,13 @@ export default async function globalSetup(): Promise<void> {
     await pool.query(
       `update courier_profiles set status = 'REJECTED', is_online = false, online_since = null
        where status = 'PENDING' and user_id in (select id from users where email like 'e2e.%@cougarnet.uh.edu')`,
+    );
+    await pool.query(
+      `update menu_items set is_available = true
+       where restaurant_id in (select id from restaurants where slug in ('the-burger-joint', 'the-taco-stand'))`,
+    );
+    await pool.query(
+      `update restaurants set is_accepting_orders = true where slug in ('the-burger-joint', 'the-taco-stand')`,
     );
     // The ordering journey needs a restaurant that's open whatever time the suite runs. Open The Burger
     // Joint all week in this (development) database; `pnpm db:seed` puts its sample hours back.

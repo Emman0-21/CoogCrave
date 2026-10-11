@@ -117,3 +117,31 @@ test("approve a courier, cancel an order from its record, suspend an account (J3
     await expect(log.getByRole("cell", { name: action }).first()).toBeVisible();
   }
 });
+
+/**
+ * Menu editing, essentials (PRD ADM-5): an admin marks an item sold out and the menu shows it at once;
+ * then puts it back. Phone and desktop runs edit different items, so parallel runs don't collide.
+ */
+test("an admin marks an item sold out and back, and customers see it", async ({
+  browser,
+  page,
+}, testInfo) => {
+  const itemName = testInfo.project.name.startsWith("mobile")
+    ? "Bean and cheese burrito"
+    : "Egg and potato breakfast taco";
+  const admin = await signedInPage(browser, DEMO.admin, DEMO.password, "/admin/restaurants");
+  await admin.getByRole("link", { name: "Edit menu for The Taco Stand" }).click();
+  await expect(admin.getByRole("heading", { level: 1 })).toHaveText("The Taco Stand");
+  await admin.getByRole("button", { name: `Mark ${itemName} sold out` }).click();
+  await expect(admin.getByText("Marked sold out.")).toBeVisible();
+
+  // Anyone browsing sees it straight away.
+  await page.goto("/restaurants/the-taco-stand");
+  const row = page.getByRole("listitem").filter({ hasText: itemName });
+  await expect(row).toContainText("Sold out today");
+
+  await admin.getByRole("button", { name: `Put ${itemName} back on the menu` }).click();
+  await expect(admin.getByText("Back on the menu.")).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("listitem").filter({ hasText: itemName })).not.toContainText("Sold out today");
+});

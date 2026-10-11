@@ -100,7 +100,7 @@ export function ReviewPanel({
                   checked={rating === value}
                   onChange={() => setRating(value)}
                   aria-label={`${value} ${value === 1 ? "star" : "stars"}, ${WORDS[value].toLowerCase()}`}
-                  className="peer sr-only"
+                  className="peer absolute inset-0 size-full cursor-pointer appearance-none opacity-0"
                 />
                 <span
                   aria-hidden="true"

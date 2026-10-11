@@ -64,7 +64,7 @@ test("order → kitchen → courier → delivered, seen from all three sides (J2
       .getByRole("article", { name: `Order ${orderNumber}` }),
   ).toBeVisible();
 
-  // A student courier (approved directly: the approval screen is Phase 6) picks it up and delivers.
+  // A student courier (approved directly here; admin approval has its own journey, J3) delivers it.
   const courierEmail = await createConfirmedStudent(request, baseURL!, "j2courier");
   await approveCourier(courierEmail);
   const courier = await signedInPage(browser, courierEmail, NEW_PASSWORD, "/courier");
@@ -112,6 +112,44 @@ test("order → kitchen → courier → delivered, seen from all three sides (J2
   await expect(courier.getByText("No payouts.")).toBeVisible();
   await expect(courier.getByRole("list", { name: "History" }).getByRole("listitem")).toHaveCount(1);
   await expect(courier.getByRole("list", { name: "History" })).toContainText("$4.49");
+  await expect(courier.getByText("No ratings yet")).toBeVisible();
+
+  // The customer rates the delivery (PRD REV-1).
+  await customer
+    .getByRole("group", { name: "How was the delivery from Riley?" })
+    .getByLabel("5 stars, great")
+    .check();
+  await customer.getByLabel("Anything to add? (optional)").fill("Right on time");
+  await customer.getByRole("button", { name: "Send rating" }).click();
+  await expect(customer.getByRole("region", { name: "Your rating" })).toContainText("5 out of 5, great");
+
+  // Their inbox has every step; opening one marks it read and goes to the order (PRD NTF-1, NTF-2).
+  await customer.reload();
+  const inboxLink = customer
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: /^Inbox, \d+ unread$/ });
+  await inboxLink.click();
+  await expect(customer).toHaveURL(/\/notifications$/);
+  const notices = customer.getByRole("list", { name: "Notifications" });
+  await expect(notices.getByRole("button", { name: /^Delivered/ })).toBeVisible();
+  await expect(notices.getByRole("button", { name: /^Order placed/ })).toBeVisible();
+  await notices.getByRole("button", { name: /^Delivered/ }).click();
+  await expect(customer).toHaveURL(/\/orders\/[0-9a-f-]{36}$/);
+
+  // The courier's rating updates.
+  await courier.reload();
+  await expect(courier.getByText("5 of 5")).toBeVisible();
+
+  // The admin reviews the order record: every step, who did it, and the rating (end of J4).
+  await kitchen.goto("/admin/orders");
+  await kitchen
+    .getByRole("link", { name: new RegExp(orderNumber) })
+    .first()
+    .click();
+  await expect(kitchen.getByRole("heading", { level: 1 })).toHaveText(`Order ${orderNumber}`);
+  await expect(kitchen.getByRole("region", { name: "Customer's rating" })).toContainText("5 out of 5");
+  await expect(kitchen.getByRole("region", { name: "Customer's rating" })).toContainText("Right on time");
+  await expect(kitchen.getByRole("region", { name: "History" })).toContainText("Delivered");
 });
 
 test("students without an approved courier profile can apply, but can't open courier-only pages", async ({
