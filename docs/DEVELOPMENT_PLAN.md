@@ -71,16 +71,18 @@ Effort is a rough range of focused hours for one developer working with Claude; 
 **Requirements:** CAT-1…6, CART-1…4, ORD-1…9, TRK-1…3.
 **Tests:** pricing and hours (U, exhaustive edge cases incl. rounding, midnight-crossing hours); T-01, T-04, T-08, T-10, T-11; empty cart, unavailable item, closed restaurant, tampered total.
 **Exit criteria:** J1 E2E up to `PLACED`; checkpoint review.
-**Status:** `IN REVIEW` on `feature/customer-ordering`. All tasks done except demo auto-advance (`DEMO_AUTO_ADVANCE`), which moves to Phase 6 with the Kitchen Console. Report: `PROGRESS.md`.
+**Status:** `DONE` (PR #4, merged). Demo auto-advance (`DEMO_AUTO_ADVANCE`) moved to Phase 6.
 
 ### Phase 5 — Courier experience
 **Tasks:** courier application; availability; offers query + projection; decline; transitions T5, T7, T8, T10, T11; active delivery screen; history; simulated earnings.
 **Requirements:** DLV-1…11.
 **Tests:** state machine exhaustive table (U); T-05, T-06, T-09 (concurrency: N parallel accepts), courier double-accept across two offers.
 **Exit criteria:** J2 E2E; concurrency test green 20 consecutive runs (flakiness check).
+**Scope change (approved at the start of Phase 5):** a basic Kitchen Console (admin acts as `RESTAURANT_SIM` for T1, T3, T4) moved here from Phase 6, because J2 needs something to make orders ready.
+**Status:** `IN REVIEW` on `feature/courier-delivery`. All tasks done. Courier approval has no UI yet (admin decision, Phase 6); the demo seed and tests set it directly. Report: `PROGRESS.md`.
 
 ### Phase 6 — Administration, notifications, reviews
-**Tasks:** admin dashboard/metrics; users (suspend); courier decisions; restaurant/menu/hours/options CRUD; admin order list + detail; Kitchen Console (T1–T4 as `RESTAURANT_SIM`); admin resolutions (T2, T4, T6, T7, T9, T11); audit log viewer; notifications (write in transitions, list, mark read, unread badge); reviews; demo reset + optional auto-advance.
+**Tasks:** admin dashboard/metrics; users (suspend); courier decisions; restaurant/menu/hours/options CRUD; admin order list + detail (admin projection); admin resolutions (T2, T4, T6, T7, T9, T11); audit log viewer; notifications (write in transitions, list, mark read, unread badge); reviews; demo reset + optional auto-advance.
 **Requirements:** ADM-1…10, NTF-1…2, REV-1…2.
 **Tests:** T-03, T-07, T-12, T-13, T-29; admin mutations write audit rows.
 **Exit criteria:** J3 and the full J4 demo E2E pass; draft `DEMO_GUIDE.md`.
@@ -160,4 +162,4 @@ Cut from the top first. The bottom block is never cut because it's what makes th
 
 ## 8. Next action after approval
 
-After the Phase 4 checkpoint is approved and `feature/customer-ordering` is merged: Phase 5 (courier experience) on `feature/courier-delivery`, starting with the offer projection and the concurrent-accept test.
+After the Phase 5 checkpoint is approved and `feature/courier-delivery` is merged: Phase 6 (administration, notifications, reviews) on `feature/admin-operations`, starting with courier approval and the admin order view.

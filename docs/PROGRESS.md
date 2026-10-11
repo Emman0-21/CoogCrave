@@ -1,7 +1,76 @@
 # CoogCrave — Progress
 
-**Current phase:** 4 — Customer experience · **Status:** `IN REVIEW` (awaiting Phase 4 checkpoint approval)
-**Branch:** `feature/customer-ordering` (7 commits on top of `main` at `c87672b`) · **Last updated:** 2026-10-11
+**Current phase:** 5 — Courier experience · **Status:** `IN REVIEW` (awaiting Phase 5 checkpoint approval)
+**Branch:** `feature/courier-delivery` (4 commits on top of `main` at `efe7655`) · **Last updated:** 2026-10-11
+
+---
+
+## Phase 5 report
+
+### 1. What was implemented
+
+| Task | Status | Notes |
+|---|---|---|
+| Courier application | `COMPLETE` | Walk / bike / scooter + guidelines; always `PENDING`; rejected applicants may reapply. Approval itself is an admin screen in Phase 6 (the demo seed provides an approved courier) |
+| Availability | `COMPLETE` | Go online / offline; offline never affects a delivery in progress |
+| Offers and decline | `COMPLETE` | Ready orders, oldest first; restaurant, pickup and drop buildings, item count, simulated payout, and nothing else (no customer name, note, or prices); skip hides it for that courier only; refreshes every 10 s |
+| Accept | `COMPLETE` | Exactly one winner under simultaneous accepts; one delivery at a time per courier; own orders refused |
+| Active delivery | `COMPLETE` | Pickup details, "Alex R." (or display name), drop point and note while active; only the moves the server allows |
+| Transitions T5, T7–T11 | `COMPLETE` | One referee (`order-workflow.ts`) for all 11 rules: compare-and-set on status + version, assignment bookkeeping, simulated payout, payment capture/void after commit, customer notifications, audit for admin actions |
+| History and simulated earnings | `COMPLETE` | Today / this week in campus time, all time, completed count; rating shows "No ratings yet" until reviews (Phase 6) |
+| Customer tracking shows the courier | `COMPLETE` | First name and how they travel |
+| **Kitchen Console** (scope added at the start of this phase) | `COMPLETE` | Admin-only; confirm, mark ready, reject with a reason; every action audited with the admin's name; refreshes every 10 s |
+
+### 2. Files changed
+
+53 files (26 added, 27 modified) since `main`.
+
+- **Domain:** `src/server/domain/delivery.ts` (new); state machine unchanged except an unused helper removed in Phase 4
+- **Services:** `src/server/services/{order-workflow,courier,kitchen}.ts` (new), `orders.ts` (who-is-the-caller routing, courier projection), `notifications.ts`; `src/server/payments/gateway.ts` (`capture`); `src/server/http/{errors,limits}.ts`
+- **API:** `src/app/api/v1/courier/{application,me,availability,offers,offers/[orderId]/decline,deliveries,deliveries/active,earnings}/route.ts`, `admin/kitchen/route.ts`; `orders/[orderId]` and its transitions route now serve couriers and the Kitchen Console
+- **Shared:** `src/shared/schemas/delivery.ts` (new), `ordering.ts` (`actingAs`, courier on the customer view)
+- **UI:** pages `courier`, `courier/history`, `admin/kitchen`; components `src/components/features/{courier,kitchen}/`; header "Deliver" link, tracker shows the courier, admin page links to the console, landing copy
+- **Tests:** `unit/domain-delivery`, `integration/delivery`, role matrix extended, `component/delivery-ui`, `e2e/delivery.spec.ts`, `tests/support/delivery.ts`, account helpers
+- **Docs:** API spec §7, §8, §10; architecture (§2, §4, §6, §7.1, §9, §11, §16); threat model; testing; plan; PRD notes; README (status, three-window demo walkthrough); review log; this report
+
+### 3. Commands executed (clean clone of `feature/courier-delivery` at `9ee30bf`, fresh `coogcrave_dev` and `coogcrave_test` databases, 2026-10-11)
+
+| Command | Result |
+|---|---|
+| `pnpm install --frozen-lockfile` | ✅ exit 0 |
+| `pnpm verify` (tracked-env, format, lint, typecheck, drift, coverage, build) | ✅ exit 0 |
+| ↳ `pnpm test:coverage` | ✅ 29 files, **393/393 tests passed**. Coverage 96.5% statements, 90.0% branches, 98.1% functions, 98.2% lines. Domain 98.4% / 97.8% branches / 100% functions; services 94.5% / 86.8% branches |
+| `pnpm db:migrate`, `pnpm db:seed`, `pnpm db:seed:demo` | ✅ migrations applied; 14 buildings, 10 cuisines, 11 restaurants, 31 items; 4 demo accounts |
+| `pnpm test:e2e` (Chromium, `CI=1`) | ✅ **28/28 passed** (14 tests × mobile + desktop), no retries. The first attempt didn't start: a server from an earlier screenshot session still held port 3000; stopped and re-run |
+| `pnpm audit --audit-level=high` | ✅ pass (same accepted dev-only exception as Phase 4; 1 moderate) |
+| Concurrency tests × 20 consecutive runs (each run = 20 rounds) | ✅ 20/20 green, run on `55aa9c9`; the referee code hasn't changed since |
+
+**Checkpoint** (exit criteria: J2 E2E; concurrency test green 20 consecutive runs): `e2e/delivery.spec.ts` uses three browser sessions. The customer orders; the admin confirms and marks it ready in the Kitchen Console; the courier goes online, sees the offer without the customer's name or note, accepts, then sees "Riley N." and the note, picks up, delivers; the customer's page shows "Riley, by bike" and "Delivered"; the courier's history shows the simulated $4.49.
+
+### 4. Tests by result
+
+- 393 Vitest tests passed, 0 failed, 0 skipped (42 more than Phase 4: delivery unit and integration tests, the role matrix for the 9 new endpoints, and courier/kitchen component tests).
+- 28 E2E runs passed, 0 failed.
+- Mutation checks (broken on purpose, test failed, restored): assigned-courier check; instruction gating; compare-and-set guards plus unique-index translation; 404 for unapproved couriers; offer-list error handling. Removing only the compare-and-set guards does **not** fail the race test, because the database index still keeps one winner: that is the designed second layer, not a gap.
+
+### 5. Engineering risks remaining
+
+- **Courier approval has no screen** until Phase 6. Today an approved courier comes only from the demo seed or the database.
+- **Admin resolutions** (unassign, fail, cancel a stuck order): the referee already applies the admin rules and the state-machine table is unit-tested, but there's no HTTP path or screen yet, and their side effects get integration tests in Phase 6. A courier who disappears mid-delivery currently leaves the order stuck.
+- **Courier status is read at request start**, not locked during accept (`ARCHITECTURE.md` §16). Harmless today; matters once admins can suspend couriers mid-delivery.
+- **Payment follow-ups after commit** can't fail with the demo gateway. A real processor would need a retry queue; noted in code and architecture.
+- **Mobile header** wraps to two rows under ~400 px (Phase 7).
+- All earnings, payments, and restaurant actions are simulations and labeled so.
+
+### 6. Ready for review?
+
+**Yes.** Both Phase 5 exit criteria pass from a clean clone with fresh databases: the J2 journey on phone and desktop, and the concurrency tests 20 runs in a row. The Kitchen Console was added to this phase with your approval; courier approval remains a Phase 6 admin task, as planned.
+
+### 7. What should happen next
+
+1. Review the branch, mainly `src/server/services/order-workflow.ts` (the referee), `orders.ts` (`orderTransition`), and the decisions added to `ARCHITECTURE.md` §16.
+2. Push `feature/courier-delivery` and open a PR to `main` so CI runs.
+3. On approval and merge: Phase 6 (administration, notifications, reviews) on `feature/admin-operations`, starting with courier approval and admin order resolution.
 
 ---
 

@@ -1,6 +1,6 @@
 # CoogCrave — API Specification (v1)
 
-> **Status:** Approved at Phase 1; updated through Phase 4 · **Last updated:** 2026-10-11
+> **Status:** Approved at Phase 1; updated through Phase 5 · **Last updated:** 2026-10-11
 > Contracts are designed before implementation. Endpoints marked **(implemented)** match the code and its tests; the rest are the designed contract for later phases. Zod schemas in `src/shared/schemas` and the route files are the source of truth for implemented endpoints.
 
 ---
@@ -92,6 +92,7 @@ Fixed-window counters in Postgres, shared by all server instances (`src/server/r
 | `POST /orders` | 10 / min per user | Implemented |
 | `POST /orders/{id}/transitions` | 60 / min per user | Implemented |
 | Cart mutations and `POST /checkout/quote` | 120 / min per user | Implemented |
+| Courier application, availability, decline | 60 / min per user | Implemented |
 | Reviews | 10 / hour per user | Phase 6 |
 
 `/api/health` is exempt (load-balancer polling; it runs only `select 1`).
@@ -100,7 +101,7 @@ Fixed-window counters in Postgres, shared by all server instances (`src/server/r
 
 ## 2. Endpoint index
 
-Implemented as of Phase 4: `GET /api/health`, `/api/auth/*`, `GET/PATCH /me`, `GET /locations`, `GET /admin/audit-events`, and everything in §5–7 except `POST /orders/{id}/review` (Phase 6). The rest is the designed contract.
+Implemented as of Phase 5: `GET /api/health`, `/api/auth/*`, `GET/PATCH /me`, `GET /locations`, everything in §5–8 except `POST /orders/{id}/review`, and from §10 `GET /admin/audit-events` and `GET /admin/kitchen`. The rest is the designed contract.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
@@ -303,9 +304,9 @@ An empty cart is `{ restaurant: null, items: [], itemCount: 0, subtotalCents: 0,
 - **Query (strict):** `scope=active|past` (default all), `limit` 1–50 (default 20), `cursor`.
 - **Response 200:** `{ "data": [{ "id", "orderNumber", "restaurantName", "status", "totalCents", "itemCount", "createdAt" }], "nextCursor" }`, newest first — **only the caller's own orders**. Same microsecond keyset cursor as the audit log.
 
-### `GET /orders/{orderId}` — user (implemented: customer projection)
+### `GET /orders/{orderId}` — user (implemented: customer and courier projections)
 
-**Phase 4:** only the customer who placed the order can see it; everyone else, including admins and couriers, gets `404`. The courier projection arrives in Phase 5 and the admin projection in Phase 6. The customer projection's `timeline` has `{ status, at, actorType }` (no actor identities or staff reasons); `payment` is `{ mode: "DEMO", status }`; `courier` is absent until couriers exist.
+The customer who placed the order gets the customer projection (now including `courier: { firstName, transportMode } | null`). The courier who holds the delivery, or whose delivery ended within the last 24 hours, gets the courier projection: `{ viewer: "COURIER", id, orderNumber, status, version, restaurant { name, pickupLocation, pickupNotes }, items [{ name, quantity, options[], specialInstructions }], deliveryLocation, deliveryInstructions (null once the delivery ends), customerName ("Alex R." or their display name), timeline [{ status, at }], assignment { assignedAt, pickedUpAt, endedAt, endReason }, payoutCents, payoutIsSimulated, allowedTransitions }` — no prices except the simulated payout, no email, no full name. Everyone else, including couriers who only saw it as an offer, gets `404`. The admin projection arrives in Phase 6.
 
 #### 7.1 Projections
 
@@ -328,17 +329,15 @@ The service picks the projection from the viewer's relationship to the order; an
 
 Couriers who are not assigned see an order only through `/courier/offers` (offer projection). After they release or the assignment ends + 24 h, `GET /orders/{id}` returns the courier projection without instructions, and later `404`.
 
-### `POST /orders/{orderId}/transitions` — user (implemented for customers)
+### `POST /orders/{orderId}/transitions` — user (implemented)
 
-The single endpoint for every status change (see `ARCHITECTURE.md` §6, transitions T1–T11).
-
-**Phase 4:** the only caller relationship is the order's customer, so the only possible move is cancelling a `PLACED` order (T2). Non-owners get `404`. `actingAs` isn't accepted yet (the strict schema answers `400`); it's added with the Kitchen Console in Phase 6. The service behind it (`transitionOrder`) already applies T1–T4 and T6 with compare-and-set; courier moves (T5, T7–T11) are refused until assignments exist (Phase 5).
+The single endpoint for every status change (see `ARCHITECTURE.md` §6, transitions T1–T11). The server works out who the caller is to the order: an admin with `actingAs: "RESTAURANT_SIM"` is the simulated restaurant (Kitchen Console; the response is the kitchen view); the order's customer is `CUSTOMER`; a courier is `COURIER` (accepting an offer, or moving their own delivery along); anyone else gets `404`. Admin actions as `ADMIN` (T6, T7, T9, T11 resolutions) are applied by the same referee and arrive in the UI in Phase 6.
 
 - **Request:** `{ "toStatus": OrderStatus, "reason"?: string ≤ 300, "actingAs"?: "RESTAURANT_SIM", "expectedVersion"?: int }`
   - `actingAs: "RESTAURANT_SIM"` is accepted **only** from admins (Kitchen Console). Otherwise the actor type is derived from the caller's relationship: owner → `CUSTOMER`, courier → `COURIER`, admin → `ADMIN`.
   - `expectedVersion` (optional) turns any concurrent change into `409 STALE_STATE`; without it, the CAS on the from-status still prevents illegal interleavings.
 - **Response 200:** OrderDetail for the caller's projection.
-- **Errors:** `404`; `403 COURIER_NOT_APPROVED`, `COURIER_OFFLINE`, `FORBIDDEN`; `409 INVALID_TRANSITION`, `STALE_STATE`, `OFFER_UNAVAILABLE`, `COURIER_HAS_ACTIVE_DELIVERY`; `422 REASON_REQUIRED`, `CANNOT_ACCEPT_OWN_ORDER`; `429`.
+- **Errors:** `404` (including a courier who isn't approved trying anything except accepting); `403 COURIER_NOT_APPROVED` (accepting without approval), `COURIER_OFFLINE`, `FORBIDDEN` (non-admin sending `actingAs`); `409 INVALID_TRANSITION`, `STALE_STATE`, `OFFER_UNAVAILABLE`, `COURIER_HAS_ACTIVE_DELIVERY`; `422 REASON_REQUIRED`, `CANNOT_ACCEPT_OWN_ORDER`; `429`.
 - **Side effects:** as listed per transition in the architecture table — status event, notifications, assignment create/release/complete, simulated payment void/capture, payout fixed on delivery, audit event for admin/kitchen actions.
 - **Idempotency:** a courier re-sending `ASSIGNED` for an order they already hold gets `200` with the current state; other repeats of an already-applied transition return `409 INVALID_TRANSITION` with the current status in `details`, which clients treat as "already done."
 
@@ -362,7 +361,9 @@ Examples:
 
 ---
 
-## 8. Courier
+## 8. Courier (implemented)
+
+Routes marked *courier* need an approved courier profile (`403 COURIER_NOT_APPROVED` otherwise, whatever the role). Approval itself is an admin action (Phase 6); the demo seed provides an approved courier.
 
 ### `POST /courier/application` — user
 - **Request:** `{ "transportMode": "WALK" | "BIKE" | "SCOOTER", "acceptGuidelines": true }`
@@ -388,14 +389,14 @@ Examples:
 - Excludes: orders declined by this courier and the courier's own orders. **No customer name, instructions, or prices beyond payout.**
 - **Errors:** `403 COURIER_OFFLINE`, `COURIER_NOT_APPROVED`.
 
-### `POST /courier/offers/{orderId}/decline` — courier → **204** (idempotent). Accepting is a transition (`toStatus: "ASSIGNED"`).
+### `POST /courier/offers/{orderId}/decline` — courier → **204** (idempotent). `404` unless the order is currently an offer (ready, not the courier's own). Accepting is a transition (`toStatus: "ASSIGNED"`). A courier who gives a delivery back (T7) is also recorded as having declined it, so it doesn't come back to them.
 
 ### `GET /courier/deliveries/active` — courier → courier projection of the active order, or `204` when none.
 
-### `GET /courier/deliveries` — courier → list of `{ "orderId", "orderNumber", "restaurantName", "dropLocation", "assignedAt", "endedAt", "endReason", "payoutCents" }`.
+### `GET /courier/deliveries` — courier → `{ "data": [...] }` (query `limit` 1–50, default 20), newest first, list of `{ "orderId", "orderNumber", "restaurantName", "dropLocation", "assignedAt", "endedAt", "endReason", "payoutCents" }`.
 
 ### `GET /courier/earnings` — courier
-- **Response 200:** `{ "simulated": true, "todayCents", "weekCents", "allTimeCents", "completedDeliveries", "averageRating": number | null, "ratingsCount" }`
+- **Response 200:** `{ "simulated": true, "todayCents", "weekCents", "allTimeCents", "completedDeliveries", "averageRating": number | null, "ratingsCount" }`. "Today" and "this week" (Monday start) are in the campus time zone. `averageRating` stays `null` until reviews exist (Phase 6).
 
 ---
 
@@ -410,6 +411,9 @@ Examples:
 ---
 
 ## 10. Admin — admin
+
+### `GET /admin/kitchen` (implemented) → `{ "data": KitchenOrderView[] }`
+Orders in `PLACED`, `CONFIRMED`, or `READY_FOR_PICKUP`, oldest first (≤ 100): `{ id, orderNumber, status, version, restaurantName, placedAt, statusUpdatedAt, dropLocation, items [{ name, quantity, options[], specialInstructions }] }`. No customer details. Actions go through `POST /orders/{id}/transitions` with `actingAs: "RESTAURANT_SIM"`; each writes an audit event `order.kitchen_<status>` naming the admin.
 
 All admin mutations write an `audit_events` row (actor, action, target, before/after of changed fields, reason, request ID).
 

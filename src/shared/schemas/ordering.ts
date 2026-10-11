@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { ActorType, OrderStatus } from "@/shared/enums";
+import type { ActorType, OrderStatus, TransportMode } from "@/shared/enums";
 
 /**
  * Request schemas and response types for catalog, cart, checkout, and orders (docs/API_SPEC.md §5–7).
@@ -214,8 +214,8 @@ export const transitionSchema = z.strictObject({
     "DELIVERY_FAILED",
   ] satisfies OrderStatus[]),
   reason: optionalNote(300),
-  // `actingAs: "RESTAURANT_SIM"` (admins in the Kitchen Console) is added with the admin tools in Phase 6.
-  // Until then the strict schema rejects it, rather than accepting a field the server would ignore.
+  /** Admins only: act as the simulated restaurant (Kitchen Console). Anyone else sending it gets 403. */
+  actingAs: z.literal("RESTAURANT_SIM").optional(),
   expectedVersion: z.number().int().min(0).optional(),
 });
 export type TransitionInput = z.infer<typeof transitionSchema>;
@@ -271,6 +271,8 @@ export interface OrderDetailView {
     reason?: string | null;
   }[];
   payment: { mode: "DEMO"; status: "AUTHORIZED" | "CAPTURED" | "VOIDED"; amountCents?: number };
+  /** Once a courier is assigned: their first name and how they're getting around. */
+  courier: { firstName: string; transportMode: TransportMode } | null;
   /** Admin projection only. */
   customer?: { id: string; name: string; email: string };
   allowedTransitions: AllowedTransitionView[];

@@ -24,6 +24,26 @@ const TEXT: Partial<Record<NotificationType, (n: OrderNotice) => { title: string
     title: "Ready for pickup",
     body: `Order ${n.orderNumber} is ready. A student courier will pick it up next.`,
   }),
+  COURIER_ASSIGNED: (n) => ({
+    title: "Courier on the way",
+    body: `A student courier is heading to ${n.restaurantName} for order ${n.orderNumber}.`,
+  }),
+  COURIER_RELEASED: (n) => ({
+    title: "Finding another courier",
+    body: `Your courier couldn't take order ${n.orderNumber}. It's back in line for the next courier.`,
+  }),
+  ORDER_PICKED_UP: (n) => ({
+    title: "On its way",
+    body: `Your courier picked up order ${n.orderNumber} and is heading to your building.`,
+  }),
+  ORDER_DELIVERED: (n) => ({
+    title: "Delivered",
+    body: `Order ${n.orderNumber} from ${n.restaurantName} was delivered. Enjoy!`,
+  }),
+  DELIVERY_FAILED: (n) => ({
+    title: "Delivery didn't happen",
+    body: `Your courier couldn't deliver order ${n.orderNumber}. No payment was taken.`,
+  }),
   ORDER_CANCELLED: (n) => ({
     title: "Order cancelled",
     body: `Order ${n.orderNumber} from ${n.restaurantName} was cancelled. No payment was taken.`,

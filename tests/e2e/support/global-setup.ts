@@ -25,6 +25,12 @@ export default async function globalSetup(): Promise<void> {
         "Demo accounts are missing. Run `pnpm db:seed && pnpm db:seed:demo` before `pnpm test:e2e`.",
       );
     }
+    // Orders from earlier E2E runs (accounts the suites created, e2e.*) would show up as stale courier
+    // offers and kitchen tickets. Remove them; deleting an order removes its history, assignments, and
+    // payment with it. Demo and personal accounts are never touched.
+    await pool.query(
+      `delete from orders where customer_id in (select id from users where email like 'e2e.%@cougarnet.uh.edu')`,
+    );
     // The ordering journey needs a restaurant that's open whatever time the suite runs. Open The Burger
     // Joint all week in this (development) database; `pnpm db:seed` puts its sample hours back.
     // Two statements: in one statement (a data-modifying CTE) the insert wouldn't see the delete.

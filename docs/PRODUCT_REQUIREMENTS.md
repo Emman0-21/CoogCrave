@@ -100,17 +100,17 @@ Each requirement has an ID used in the development plan, tests, and PR template.
 
 | ID | Requirement | Pri |
 |---|---|---|
-| DLV-1 | Courier application: transport mode (walk / bike / scooter), agreement to courier guidelines. Requires verified email. | M |
+| DLV-1 | Courier application: transport mode (walk / bike / scooter), agreement to courier guidelines. Requires verified email. *Built (Phase 5); signing in already requires a verified email. Approval is an admin decision with no screen until Phase 6.* | M |
 | DLV-2 | Approved couriers toggle online/offline. Only online, approved, non-suspended couriers see offers. | M |
 | DLV-3 | Offers list shows restaurant, pickup building, destination building, item count, and simulated payout — **no customer name or instructions**. | M |
 | DLV-4 | Courier can accept or decline an offer. Declined offers are hidden for that courier. | M |
 | DLV-5 | Exactly one courier can win an offer, even under simultaneous accepts (others receive "Offer no longer available"). | M |
 | DLV-6 | A courier may hold at most one active delivery at a time. | M |
-| DLV-7 | After accepting, the courier sees pickup details, customer first name + last initial, drop point, and instructions. | M |
+| DLV-7 | After accepting, the courier sees pickup details, customer first name + last initial, drop point, and instructions. *Built (Phase 5): shows the customer's display name if they set one, otherwise "Alex R."; instructions disappear once the delivery ends, and the order disappears from the courier 24 h later.* | M |
 | DLV-8 | Courier marks picked up, then delivered. Invalid jumps (e.g., delivered before pickup) are rejected. | M |
 | DLV-9 | Before pickup, a courier can release a delivery (returns to offers). After pickup, a courier can report delivery failed with a reason. | S |
 | DLV-10 | Delivery history and simulated earnings (delivery fee + 100% of tip, labeled "Simulated earnings — no payouts"). | S |
-| DLV-11 | Courier stats: completed deliveries, average rating. | C |
+| DLV-11 | Courier stats: completed deliveries, average rating. *Built (Phase 5); the rating reads "No ratings yet" until reviews exist (Phase 6).* | C |
 
 ### 4.5 Tracking, notifications, reviews (TRK / NTF / REV)
 
@@ -134,7 +134,7 @@ Each requirement has an ID used in the development plan, tests, and PR template.
 | ADM-4 | Create, edit, and soft-delete restaurants (name, description, campus location, cuisines, hours, image, accepting-orders switch). | S |
 | ADM-5 | Manage menu categories, items (price, availability), and option groups/options. | S |
 | ADM-6 | Order list with filters; order detail with status history, assignment, simulated payment record, and review. | M |
-| ADM-7 | **Kitchen Console:** perform simulated restaurant actions (confirm, mark ready, reject) on orders. Each action is labeled simulated and recorded with actor type `RESTAURANT_SIM`. | M |
+| ADM-7 | **Kitchen Console:** perform simulated restaurant actions (confirm, mark ready, reject) on orders. Each action is labeled simulated and recorded with actor type `RESTAURANT_SIM`. *Built in Phase 5 (moved up from Phase 6 so the courier journey works end to end); each action also writes an audit row naming the admin.* | M |
 | ADM-8 | Resolve problems: cancel any non-terminal order with a reason; unassign a courier before pickup. | S |
 | ADM-9 | Every admin mutation writes an append-only audit event; admins can browse the audit log. | M |
 | ADM-10 | Demo reset (re-seed fixtures) — available only when `APP_ENV` is not `production` **and** `DEMO_RESET_ENABLED=true`, admin-only, audited. | M |

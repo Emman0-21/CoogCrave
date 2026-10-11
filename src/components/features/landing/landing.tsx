@@ -35,8 +35,7 @@ export function Landing({ signedIn }: { signedIn: boolean }) {
             )}
           </div>
           <p className="mt-4 max-w-[34rem] text-ink-muted">
-            Demo mode: menus are samples and payments are simulated. Student couriers join in the next
-            release.
+            Demo mode: menus are samples and payments are simulated, including what couriers earn.
           </p>
         </div>
 

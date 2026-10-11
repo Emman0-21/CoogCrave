@@ -4,11 +4,20 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { GET as healthGet } from "@/app/api/health/route";
 import { GET as auditGet } from "@/app/api/v1/admin/audit-events/route";
+import { GET as kitchenGet } from "@/app/api/v1/admin/kitchen/route";
 import { GET as locationsGet } from "@/app/api/v1/locations/route";
 import { DELETE as cartItemDelete, PATCH as cartItemPatch } from "@/app/api/v1/cart/items/[cartItemId]/route";
 import { POST as cartItemsPost } from "@/app/api/v1/cart/items/route";
 import { DELETE as cartDelete, GET as cartGet } from "@/app/api/v1/cart/route";
 import { POST as quotePost } from "@/app/api/v1/checkout/quote/route";
+import { POST as applyPost } from "@/app/api/v1/courier/application/route";
+import { PUT as availabilityPut } from "@/app/api/v1/courier/availability/route";
+import { GET as activeGet } from "@/app/api/v1/courier/deliveries/active/route";
+import { GET as deliveriesGet } from "@/app/api/v1/courier/deliveries/route";
+import { GET as earningsGet } from "@/app/api/v1/courier/earnings/route";
+import { GET as courierMeGet } from "@/app/api/v1/courier/me/route";
+import { POST as declinePost } from "@/app/api/v1/courier/offers/[orderId]/decline/route";
+import { GET as offersGet } from "@/app/api/v1/courier/offers/route";
 import { GET as cuisinesGet } from "@/app/api/v1/cuisines/route";
 import { GET as meGet, PATCH as mePatch } from "@/app/api/v1/me/route";
 import { GET as orderGet } from "@/app/api/v1/orders/[orderId]/route";
@@ -186,6 +195,56 @@ describe("role-access matrix", () => {
           ctx({ orderId: missingId }),
         ),
     },
+    {
+      name: "GET /api/v1/courier/me",
+      call: (jar: CookieJar) => courierMeGet(appRequest("/api/v1/courier/me", { jar })),
+    },
+    {
+      name: "PUT /api/v1/courier/availability",
+      call: (jar: CookieJar) =>
+        availabilityPut(
+          appRequest("/api/v1/courier/availability", { method: "PUT", body: { online: false }, jar }),
+        ),
+    },
+    {
+      name: "GET /api/v1/courier/offers",
+      call: (jar: CookieJar) => offersGet(appRequest("/api/v1/courier/offers", { jar })),
+    },
+    {
+      name: "POST /api/v1/courier/offers/{id}/decline",
+      call: (jar: CookieJar) =>
+        declinePost(
+          appRequest(`/api/v1/courier/offers/${missingId}/decline`, { body: {}, jar }),
+          ctx({ orderId: missingId }),
+        ),
+    },
+    {
+      name: "GET /api/v1/courier/deliveries",
+      call: (jar: CookieJar) => deliveriesGet(appRequest("/api/v1/courier/deliveries", { jar })),
+    },
+    {
+      name: "GET /api/v1/courier/deliveries/active",
+      call: (jar: CookieJar) => activeGet(appRequest("/api/v1/courier/deliveries/active", { jar })),
+    },
+    {
+      name: "GET /api/v1/courier/earnings",
+      call: (jar: CookieJar) => earningsGet(appRequest("/api/v1/courier/earnings", { jar })),
+    },
+    {
+      name: "GET /api/v1/admin/kitchen",
+      call: (jar: CookieJar) => kitchenGet(appRequest("/api/v1/admin/kitchen", { jar })),
+    },
+    // Last: it gives the student and admin a (pending) courier profile.
+    {
+      name: "POST /api/v1/courier/application",
+      call: (jar: CookieJar) =>
+        applyPost(
+          appRequest("/api/v1/courier/application", {
+            body: { transportMode: "WALK", acceptGuidelines: true },
+            jar,
+          }),
+        ),
+    },
   ] as const;
 
   const U = 401;
@@ -208,6 +267,15 @@ describe("role-access matrix", () => {
     suspended: F,
     unverified: F,
   });
+  /** Approved couriers only: everyone else is stopped at the access level (403 COURIER_NOT_APPROVED). */
+  const courierOnly = (status: number) => ({
+    anonymous: U,
+    student: F,
+    courier: status,
+    admin: F,
+    suspended: F,
+    unverified: F,
+  });
   // Expected status for each endpoint × identity. Endpoints run in this order, so the cart is empty
   // again (DELETE /cart) before quote and order placement, which then fail on business rules (422).
   const expected: Record<(typeof endpoints)[number]["name"], Record<Identity, number>> = {
@@ -224,6 +292,39 @@ describe("role-access matrix", () => {
     "POST /api/v1/orders": anyUser(422),
     "GET /api/v1/orders/{id}": anyUser(404),
     "POST /api/v1/orders/{id}/transitions": anyUser(404),
+    // Students and admins without a courier profile: 404 (nothing to show); the approved courier: 200.
+    "GET /api/v1/courier/me": {
+      anonymous: U,
+      student: 404,
+      courier: 200,
+      admin: 404,
+      suspended: F,
+      unverified: F,
+    },
+    // Courier-only: needs an approved courier profile, whatever the role (admins aren't couriers).
+    "PUT /api/v1/courier/availability": courierOnly(200),
+    "GET /api/v1/courier/offers": courierOnly(403), // approved but offline: COURIER_OFFLINE
+    "POST /api/v1/courier/offers/{id}/decline": courierOnly(404),
+    "GET /api/v1/courier/deliveries": courierOnly(200),
+    "GET /api/v1/courier/deliveries/active": courierOnly(204),
+    "GET /api/v1/courier/earnings": courierOnly(200),
+    "GET /api/v1/admin/kitchen": {
+      anonymous: U,
+      student: F,
+      courier: F,
+      admin: 200,
+      suspended: F,
+      unverified: F,
+    },
+    // The approved courier already has a profile: 409.
+    "POST /api/v1/courier/application": {
+      anonymous: U,
+      student: 201,
+      courier: 409,
+      admin: 201,
+      suspended: F,
+      unverified: F,
+    },
     "GET /api/health": {
       anonymous: 200,
       student: 200,

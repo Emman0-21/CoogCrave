@@ -13,10 +13,11 @@ CoogCrave is a student-powered food delivery platform for the University of Hous
 | 1. Architecture and planning | Complete ([docs](docs/)) |
 | 2. Project foundation | Complete (merged in PR #1) |
 | 3. Database, accounts, and access control | Complete (PR #2; real restaurant names in PR #3) |
-| 4. Customer ordering | **In review**: browse and search restaurants, menus with choices, cart, demo checkout, order tracking, history, cancel |
-| 5–8. Courier delivery, admin tools, polish, release | Not started |
+| 4. Customer ordering | Complete (PR #4) |
+| 5. Courier delivery | **In review**: courier application, go online, offers, accept (one winner, always), pickup, delivery, give back, failed delivery, history, simulated earnings; basic Kitchen Console for admins |
+| 6–8. Admin tools, polish, release | Not started |
 
-Students can create an account, browse campus restaurants, build a cart, check out (payment is simulated), track the order, and cancel it before the restaurant confirms. Nobody moves orders past "placed" yet: the restaurant's Kitchen Console arrives in Phase 6 and student couriers in Phase 5. Progress is tracked in [docs/PROGRESS.md](docs/PROGRESS.md).
+A full order now runs end to end: a student orders, an admin plays the restaurant in the Kitchen Console, a student courier accepts and delivers it, and the customer tracks each step. Progress is tracked in [docs/PROGRESS.md](docs/PROGRESS.md).
 
 ## Tech stack
 
@@ -55,7 +56,14 @@ pnpm dev                             # http://localhost:3000
 | `customer@demo.coogcrave.test` | Student |
 | `courier@demo.coogcrave.test` | Student with an approved courier profile |
 | `applicant@demo.coogcrave.test` | Student whose courier application is pending |
-| `admin@demo.coogcrave.test` | Admin (sees the activity log at `/admin`) |
+| `admin@demo.coogcrave.test` | Admin (activity log at `/admin`, Kitchen Console at `/admin/kitchen`) |
+
+**Try a whole delivery** with three browser windows (one normal, two private, so each keeps its own sign-in):
+
+1. As the customer, order from a restaurant that's open now.
+2. As the admin, open **Kitchen Console** (`/admin/kitchen`), press **Confirm**, then **Mark ready**.
+3. As the courier, open **Deliver**, press **Go online**, and **Accept** the delivery. Then **I picked it up** and **Delivered**.
+4. The customer's order page updates by itself every few seconds and shows the courier's first name.
 
 `.test` is a reserved domain, so these addresses can never receive real email. The demo seed refuses to run when `APP_ENV=production`. Re-running it resets their passwords.
 
@@ -120,9 +128,11 @@ docs/               requirements, architecture, API, database, threat model, pla
 
 ## Known limitations (current)
 
-- Orders stay at "placed" until the Kitchen Console (Phase 6) and couriers (Phase 5) exist. The seed data uses real UH restaurant names, but their menus, prices, and hours are invented samples; none of these venues takes part in or endorses CoogCrave.
+- Restaurant steps are played by an admin in the Kitchen Console; no real restaurant is connected. The seed data uses real UH restaurant names, but their menus, prices, and hours are invented samples; none of these venues takes part in or endorses CoogCrave.
 - Restaurants follow their sample hours in campus time, so some are closed depending on when you look.
 - Emails go to a local folder; no email provider is connected, and deployed environments refuse to start until one is (Phase 8).
-- No admin screens beyond the activity log yet (suspending users, approving couriers, and editing menus arrive in Phase 6).
+- No admin screens beyond the activity log and Kitchen Console yet (suspending users, approving couriers, resolving problem orders, and editing menus arrive in Phase 6). Until then the demo seed provides the approved courier.
+- No notifications inbox or reviews yet (Phase 6); notifications are already recorded with each status change.
+- On narrow phones the header wraps to two rows (Phase 7 visual pass).
 - No deployment target configured; the app runs locally and in CI only.
-- All payments, restaurant actions, and courier earnings will be simulations, labeled as such in the UI.
+- All payments, restaurant actions, and courier earnings are simulations, labeled as such in the UI. Nobody is charged or paid.

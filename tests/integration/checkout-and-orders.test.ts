@@ -10,7 +10,7 @@ import { getDb } from "@/server/db/client";
 import * as schema from "@/server/db/schema";
 import { seedCatalog } from "@/server/seed/catalog";
 import { newOrderNumber, requestHash } from "@/server/services/checkout";
-import { transitionOrder } from "@/server/services/orders";
+import { transitionOrder } from "@/server/services/order-workflow";
 import type { OrderDetailView, OrderListView, QuoteView } from "@/shared/schemas/ordering";
 
 import { signedInUser } from "../support/auth";
@@ -360,7 +360,7 @@ describe("checkout and orders", () => {
       }
       expect(
         (await transition(alex, order.id, { toStatus: "CONFIRMED", actingAs: "RESTAURANT_SIM" })).status,
-      ).toBe(400);
+      ).toBe(403);
 
       await transitionOrder(getDb(), {
         orderId: order.id,
@@ -452,16 +452,6 @@ describe("checkout and orders", () => {
         .from(schema.notifications)
         .where(eq(schema.notifications.orderId, order.id));
       expect(notices.map((n) => n.type).sort()).toEqual(["ORDER_CONFIRMED", "ORDER_PLACED", "ORDER_READY"]);
-      // Courier moves need assignments (Phase 5) and are refused rather than half-applied.
-      await expect(
-        transitionOrder(getDb(), {
-          orderId: order.id,
-          toStatus: "CANCELLED",
-          actorType: "ADMIN",
-          actorUserId: null,
-          reason: "x",
-        }),
-      ).rejects.toThrow();
     });
 
     it("lists orders newest first, split into active and past, a page at a time (PRD ORD-8)", async () => {

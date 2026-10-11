@@ -131,3 +131,24 @@ Each entry states whether it is an **automated self-review** (performed by Claud
 - Orders can't progress past `PLACED` through the UI until the Kitchen Console (Phase 6) and couriers (Phase 5) exist.
 - Restaurant hours are sample data; open/closed is only as right as the data.
 - Phase 4 CI hasn't run on GitHub yet.
+
+---
+
+## 2026-10-11 · Phase 5 (courier delivery + Kitchen Console) · Automated self-review
+
+**Scope:** all code on `feature/courier-delivery`: delivery domain rules, the transition referee (`order-workflow.ts`), courier and kitchen services and routes, courier and kitchen pages and components, tests, docs. Reviewed against `THREAT_MODEL.md` (T-01, T-04, T-05, T-06, T-09, T-12), with mutation checks (`TESTING.md` §4), 20 consecutive runs of the concurrency tests, and the three-account E2E journey in a real browser. **No human review has occurred yet.**
+
+| # | Area | Finding | Severity | Correction | Verification |
+|---|---|---|---|---|---|
+| 1 | Correctness | `payoutFor()` summed every numeric field it was given; passed a whole order row it would have added the subtotal and tax to the courier's payout | Medium | Reads only `deliveryFeeCents` and `tipCents` | Unit test with a full order row |
+| 2 | Test validity | A test tried to delete `audit_events` between cases; the app role can't (append-only by grant), so the test was depending on something production forbids | Low | Tests filter audit rows by target instead | Suite passes as the app role |
+| 3 | Test validity | Every test courier was named "Alex", so "customer sees the courier's first name" couldn't tell the courier from the customer | Low | Distinct names per courier ("Sam Courier") | Assertions use the courier's name |
+| 4 | Test coupling | The 20-round race tripped the per-user courier rate limit | Low | Counters reset per round (limits have their own tests) | 20 consecutive runs green |
+| 5 | Defense in depth (confirmed, not a defect) | Removing both compare-and-set guards still passes the race test | — | None needed: the partial unique index keeps one winner, as designed. Removing its error translation as well makes losers `500`, which the test catches | Mutation runs, `ARCHITECTURE.md` §7.1 |
+| 6 | Error handling | Skipping an offer ignored the response: on a server or network error the offer vanished from the list as if skipped | Medium | Removed only on success or 404 (no longer an offer); otherwise the error is shown and the offer stays | Component test; mutation |
+| 7 | UX / state | The offers poll ignored `COURIER_OFFLINE`, so a courier who went offline in another tab kept a stale list polling 403s; a delivery changed by someone else showed `STALE_STATE` without refreshing | Low | Courier-state errors reload the page; `STALE_STATE`/404 on a delivery action refresh it | Component test; mutation |
+| 8 | Access control | A pending or rejected courier got `403 COURIER_NOT_APPROVED` for any move on any existing order, confirming the order exists (T-01 says 404 for non-participants) | Low | 403 only when accepting (so applicants get a clear reason); every other move → 404 | Integration test; mutation |
+| 9 | API contract | Phase 4 answered non-admin `actingAs` with `400`; now the field is valid, so refusal is an authorization decision | Low | `403 FORBIDDEN`; API spec and threat model updated | Integration tests |
+| 10 | Layout (known, deferred) | Under ~400 px the header (Restaurants, Orders, Deliver, Cart, Sign out) wraps to two rows | Low | Deferred to the Phase 7 visual pass; it remains usable and accessible | Phone screenshot |
+
+**Not changed, recorded for review:** courier approved/online status is read when the request starts rather than locked in the accept transaction (`ARCHITECTURE.md` §16); an admin unassigning a courier (Phase 6) will also hide the order from that courier's offers.

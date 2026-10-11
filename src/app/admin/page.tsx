@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { buttonClasses } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { requirePageAccess } from "@/server/auth/page-guards";
 import { AppError } from "@/server/http/errors";
@@ -44,6 +45,11 @@ export default async function AdminPage(props: PageProps<"/admin">) {
       <p className="mt-4 max-w-prose text-lg text-ink-muted">
         Every administrative action is recorded here and can&apos;t be edited or deleted. Courier approvals,
         restaurant management, and order tools arrive in later releases.
+      </p>
+      <p className="mt-6">
+        <Link href="/admin/kitchen" className={buttonClasses("primary")}>
+          Open the Kitchen Console
+        </Link>
       </p>
 
       <section aria-labelledby="audit-heading" className="mt-10">
