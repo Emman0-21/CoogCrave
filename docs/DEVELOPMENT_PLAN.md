@@ -1,6 +1,6 @@
 # CoogCrave — Development Plan
 
-> **Status:** Approved at Phase 1 (defaults applied to D3–D7; D2 decided at Phase 3); Phases 2 and 3 complete · **Last updated:** 2026-10-11
+> **Status:** Approved at Phase 1 (defaults applied to D3–D7; D2 decided at Phase 3); Phases 2 and 3 complete; Phase 4 in review · **Last updated:** 2026-10-11
 > Requirement IDs (AUTH-, CAT-, CART-, ORD-, DLV-, TRK-, NTF-, REV-, ADM-, NFR-) refer to `PRODUCT_REQUIREMENTS.md`; threat IDs (T-xx) to `THREAT_MODEL.md`.
 
 ---
@@ -71,6 +71,7 @@ Effort is a rough range of focused hours for one developer working with Claude; 
 **Requirements:** CAT-1…6, CART-1…4, ORD-1…9, TRK-1…3.
 **Tests:** pricing and hours (U, exhaustive edge cases incl. rounding, midnight-crossing hours); T-01, T-04, T-08, T-10, T-11; empty cart, unavailable item, closed restaurant, tampered total.
 **Exit criteria:** J1 E2E up to `PLACED`; checkpoint review.
+**Status:** `IN REVIEW` on `feature/customer-ordering`. All tasks done except demo auto-advance (`DEMO_AUTO_ADVANCE`), which moves to Phase 6 with the Kitchen Console. Report: `PROGRESS.md`.
 
 ### Phase 5 — Courier experience
 **Tasks:** courier application; availability; offers query + projection; decline; transitions T5, T7, T8, T10, T11; active delivery screen; history; simulated earnings.
@@ -159,4 +160,4 @@ Cut from the top first. The bottom block is never cut because it's what makes th
 
 ## 8. Next action after approval
 
-After the Phase 3 checkpoint is approved and `feature/auth-persistence` is merged: Phase 4 (customer experience) on `feature/customer-ordering`, starting with the pure pricing and hours rules and their tests.
+After the Phase 4 checkpoint is approved and `feature/customer-ordering` is merged: Phase 5 (courier experience) on `feature/courier-delivery`, starting with the offer projection and the concurrent-accept test.

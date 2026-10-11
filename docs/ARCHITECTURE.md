@@ -34,7 +34,7 @@ Every row answers *why* and *what we give up*. Versions are checked against the 
 | Fonts | **Archivo** (variable width, display) and **Atkinson Hyperlegible Next** (body), self-hosted from pinned `@fontsource-variable` packages via `next/font/local` | No third-party requests (keeps CSP `font-src 'self'`, better privacy); builds work without internet access. Atkinson was designed for legibility. | Font files come from `node_modules` at build time. |
 | Validation | **Zod 4** | Runtime validation at every trust boundary; the same schema types the client form and the server handler. | — |
 | Styling / UI | **Tailwind CSS 4.3** with design tokens in `@theme`; **shadcn/ui** components (source copied into repo, Radix primitives); `lucide-react` icons; `sonner` toasts | Accessible primitives (focus management, ARIA) without a heavy component dependency; tokens keep colors in one place. | We own the copied component code. |
-| Client data | **TanStack Query 5** | Polling with automatic pause when the tab is hidden, retries, mutation loading/error states across ~25 screens. | One more dependency; justified by the amount of async UI state. |
+| Client data | **Server Components + `router.refresh()`; plain `fetch` for polling** (TanStack Query was planned; not adopted in Phase 4, see §16) | Pages load data on the server; client islands send a mutation, then ask the server to re-render. Tracking polls with a small hook that pauses when the tab is hidden. | Revisit if client-side caching across many screens becomes necessary (courier dashboard, Phase 5). |
 | Forms | `react-hook-form` + Zod resolver | Accessible forms with field-level errors from the shared schemas. | — |
 | Logging | **pino 10** with redaction | Structured JSON logs; redaction paths keep secrets/PII out of logs. | — |
 | Tests | **Vitest 5** (unit + integration against real Postgres), **React Testing Library**, **Playwright 1.64** (E2E) | Fast unit tests; real-DB integration tests catch constraint and concurrency bugs that mocks hide. | Integration tests need a Postgres instance locally and in CI. |
@@ -58,7 +58,7 @@ Every row answers *why* and *what we give up*. Versions are checked against the 
 flowchart LR
   subgraph Browser["Browser (mobile-first)"]
     RSC["Server-rendered pages"]
-    CC["Client components<br/>TanStack Query (polling)"]
+    CC["Client components<br/>fetch + router.refresh (polling)"]
   end
   subgraph Next["Next.js app (single deployable)"]
     Proxy["Request proxy<br/>(UX redirects only — not a security boundary)"]
@@ -101,7 +101,8 @@ coogcrave/
 │  │  ├─ sign-up/ sign-in/ check-email/ forgot-password/ reset-password/   # account pages (Phase 3)
 │  │  ├─ profile/              # signed-in account page (Phase 3)
 │  │  ├─ admin/                # activity log (Phase 3); users, couriers, restaurants, menus, orders, kitchen later
-│  │  ├─ (planned) restaurants/, cart/, checkout/, orders/, courier/
+│  │  ├─ restaurants/, restaurants/[slug]/, cart/, checkout/, orders/, orders/[orderId]/   # customer ordering (Phase 4)
+│  │  ├─ (planned) courier/
 │  │  └─ api/
 │  │     ├─ auth/[...all]/route.ts   # Better Auth handler
 │  │     ├─ health/route.ts
@@ -123,7 +124,7 @@ coogcrave/
 │     ├─ services/             # use cases: profile, locations, audit (+ cart, checkout, orders, delivery, courier, admin, notifications, demo later)
 │     ├─ accounts/             # direct account creation for seeds and the admin CLI (not reachable from HTTP)
 │     ├─ seed/                 # catalog + demo-account seed logic (scripts/ are thin wrappers)
-│     ├─ payments/             # (planned) PaymentGateway port + DemoPaymentGateway
+│     ├─ payments/             # PaymentGateway port + DemoPaymentGateway (simulated)
 │     ├─ mail/                 # Mailer port + FileOutboxMailer (dev/test); a real provider is a Phase 8 decision
 │     ├─ rate-limit/           # RateLimiter port + Postgres implementation
 │     └─ logger.ts
@@ -216,7 +217,9 @@ Actor types: `CUSTOMER` (order owner), `COURIER` (eligible / assigned courier), 
 | T10 | PICKED_UP → DELIVERED | assigned COURIER | — | complete assignment + fix simulated payout; capture simulated payment; event; notify; enable review |
 | T11 | PICKED_UP → DELIVERY_FAILED | assigned COURIER, ADMIN | reason required | complete assignment (no payout); void payment; event; notify; audit if admin |
 
-Anything not in the table is rejected with `409 INVALID_TRANSITION`. Terminal states (`DELIVERED`, `CANCELLED`, `DELIVERY_FAILED`) have no outgoing transitions. `canTransition(order, toStatus, actor)` is a pure function with exhaustive unit tests (every from × to × actor combination).
+Anything not in the table is rejected with `409 INVALID_TRANSITION`. Terminal states (`DELIVERED`, `CANCELLED`, `DELIVERY_FAILED`) have no outgoing transitions. `checkTransition(from, to, actorType, reason)` is a pure function with exhaustive unit tests (every from × to × actor combination).
+
+**Implemented in Phase 4:** `transitionOrder()` (`src/server/services/orders.ts`) applies T1–T4 and T6: it checks the move, then updates with compare-and-set on **both** the status and the `version` it read, writes the status event, voids the simulated payment on cancel, and notifies the customer, all in one transaction (the payment gateway is told only after commit). Courier moves (T5, T7–T11) need delivery assignments and are refused with an explicit error until Phase 5, rather than half-applied. The only HTTP caller so far is the customer cancel (T2).
 
 **Why assignment happens at `READY_FOR_PICKUP`** (not at `CONFIRMED` like commercial apps): it keeps a single linear status and matches the specified flow. Cost: food may wait for a courier. Future improvement: dispatch during preparation by modelling assignment as a separate dimension.
 
@@ -284,7 +287,7 @@ Each external dependency sits behind a small interface so the hackathon simulati
 
 | Port | MVP implementation | Real implementation later | Labeled in UI? |
 |---|---|---|---|
-| `PaymentGateway` (`authorize`, `capture`, `void`) | `DemoPaymentGateway` — records `payments` rows with provider `DEMO`, moves no money | Stripe (PaymentIntents with manual capture maps 1:1 to authorize/capture/void) | Yes: "Demo checkout — no real payment is taken" |
+| `PaymentGateway` (`authorize`, `void`; `capture` with delivery in Phase 5) — implemented | `DemoPaymentGateway`: issues a `demo_pi_…` reference, moves no money; the order service records the `payments` row (`AUTHORIZED` → `VOIDED` on cancel) | Stripe (PaymentIntents with manual capture maps 1:1 to authorize/capture/void) | Yes: "Demo checkout — no real payment is taken" |
 | `Mailer` (`send`) — implemented | `FileOutboxMailer` writes each email as a JSON file (mode 0600, written atomically) to `MAIL_OUTBOX_DIR` (default `.data/mail`) in development/test; tests and the E2E suite read verification and reset links from it | A real provider (e.g. Resend), chosen in Phase 8. Deployed environments refuse to start with the file transport | N/A — real flow, local transport. The check-email page tells local users where the outbox is |
 | `RateLimiter` (`consume(rule, subject)`) — implemented | `PostgresRateLimiter`: fixed windows in `rate_limit_buckets`, one atomic upsert per check, subjects hashed | Redis/Upstash if traffic requires | — |
 | Restaurant fulfillment | Kitchen Console (admin, `RESTAURANT_SIM`) + optional demo auto-advance (non-production only) | Merchant portal / POS integration | Yes: "Simulated restaurant action" |
@@ -301,8 +304,9 @@ Notifications are rows written **inside the same transaction** as the status cha
 
 ## 11. Frontend architecture
 
-- **Rendering:** pages are Server Components that load initial data via services (fast first paint, no client waterfall). Interactive islands are Client Components using TanStack Query against `/api/v1`.
-- **Polling:** order tracking refetches every 5 s while non-terminal; courier offers every 10 s while online. Both pause when the tab is hidden and stop at terminal states.
+- **Rendering:** pages are Server Components that load initial data via services (fast first paint, no client waterfall). Interactive islands are Client Components that call `/api/v1` and then `router.refresh()` so the server re-renders with fresh data. Restaurant search and filters are a plain GET form, so they work without JavaScript and every result has a shareable URL.
+- **Dialogs:** the add-to-cart dialog is the native `<dialog>` element opened with `showModal()`, which gives focus trapping, Escape to close, and an inert background without a library.
+- **Polling:** order tracking refetches every 5 s while non-terminal and the tab is visible, refreshes immediately when the tab becomes visible again, and stops for good at a terminal status (implemented, component-tested). Courier offers every 10 s while online (Phase 5).
 - **Design tokens** in `src/app/globals.css` via Tailwind 4 `@theme`. The default Tailwind palette is removed (`--color-*: initial`), so only named tokens exist: brand `crave` red (`#c41e3a`, 5.8:1 on white), `asphalt` text (15.1:1), `concrete` surfaces, and status colors, each pairing checked at ≥ 4.5:1. Semantic aliases (`ink`, `ink-muted`, `surface`, `line`, `action`) are what components use. Brand red and danger red are close in hue, so errors always carry an icon and text, never color alone. A lint rule rejects raw hex values in class names.
 - **Type:** Archivo's width axis is part of the identity (wide for headlines, narrow for the second tagline line); Atkinson Hyperlegible Next for body text.
 - **No UH logos, mascots, or wordmarks.** "UH-inspired" means palette and tone only.
@@ -385,4 +389,8 @@ Vercel hosts the Next.js app; Neon hosts Postgres (pooled URL for the app, direc
 | 2026-10-11 | Fictional restaurant names in the Phase 3 seed (changed the D2 default) | Lowest-risk choice for a public repo; flagged for decision at the checkpoint. | Superseded the same day (next row) |
 | 2026-10-11 | **D2 decided: real UH restaurant names** (11 venues listed by UH Student Centers and UH Dining: Student Center South and the RAD Center), with sample menus, prices, and hours | Judges and students recognize real campus spots. Mitigations: every restaurant flagged `is_sample_data`; UI labels each one "Sample menu — not affiliated" (Phase 4); no logos or brand marks; generic item names. The seed retires sample restaurants dropped from the data file, so existing databases update cleanly. Names must be re-checked before a demo. | Emman (Phase 3 checkpoint) |
 | 2026-10-11 | **Scripts run with `tsx --conditions=react-server`** | Lets CLIs import server modules guarded by `server-only` without weakening that guard for client bundles. | Claude, recorded for review |
+| 2026-10-11 | **No TanStack Query (yet)** | Phase 4's client state is small: a dialog, a cart editor, a checkout form, and one poller. Server Components plus `router.refresh()` cover it without another dependency; the poller is ~30 lines and tested. Revisit for the courier dashboard. | Claude, recorded for review |
+| 2026-10-11 | **Restaurant list isn't paginated** | Tens of restaurants per campus; open/closed is computed in the app from weekly hours, which DB-side pagination can't filter on cheaply. Revisit past ~100. | Claude, recorded for review |
+| 2026-10-11 | **Customer-only order visibility in Phase 4** | Admin and courier projections arrive with those features. Until then every non-owner gets 404, which errs on the side of hiding data. | Claude, recorded for review |
+| 2026-10-11 | **E2E opens The Burger Joint around the clock** in the development database | The ordering journey can't depend on the time of day. `pnpm db:seed` restores sample hours. | Claude, recorded for review |
 | 2026-10-11 | **Mail: file transport only** for now (no Resend code yet) | No provider account exists; shipping an untested provider adapter would be a placeholder. Deployed config refuses the file transport, so this can't slip into production. | Claude, recorded for review |

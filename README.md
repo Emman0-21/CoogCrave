@@ -12,10 +12,11 @@ CoogCrave is a student-powered food delivery platform for the University of Hous
 |---|---|
 | 1. Architecture and planning | Complete ([docs](docs/)) |
 | 2. Project foundation | Complete (merged in PR #1) |
-| 3. Database, accounts, and access control | **In review**: full schema and migrations, UH-email sign-up with verification, sign-in/out, password reset, profile, role-based access, admin activity log, seed data |
-| 4–8. Ordering, delivery, admin tools, polish, release | Not started |
+| 3. Database, accounts, and access control | Complete (PR #2; real restaurant names in PR #3) |
+| 4. Customer ordering | **In review**: browse and search restaurants, menus with choices, cart, demo checkout, order tracking, history, cancel |
+| 5–8. Courier delivery, admin tools, polish, release | Not started |
 
-Students can create an account, confirm their email, sign in, reset a forgotten password, and set their name and usual drop-off building. Restaurants, ordering, and courier features don't exist yet; the landing page says so. Progress is tracked in [docs/PROGRESS.md](docs/PROGRESS.md).
+Students can create an account, browse campus restaurants, build a cart, check out (payment is simulated), track the order, and cancel it before the restaurant confirms. Nobody moves orders past "placed" yet: the restaurant's Kitchen Console arrives in Phase 6 and student couriers in Phase 5. Progress is tracked in [docs/PROGRESS.md](docs/PROGRESS.md).
 
 ## Tech stack
 
@@ -119,7 +120,8 @@ docs/               requirements, architecture, API, database, threat model, pla
 
 ## Known limitations (current)
 
-- Accounts only: restaurants, ordering, and delivery start in Phase 4. The seed data uses real UH restaurant names, but their menus, prices, and hours are invented samples; none of these venues takes part in or endorses CoogCrave.
+- Orders stay at "placed" until the Kitchen Console (Phase 6) and couriers (Phase 5) exist. The seed data uses real UH restaurant names, but their menus, prices, and hours are invented samples; none of these venues takes part in or endorses CoogCrave.
+- Restaurants follow their sample hours in campus time, so some are closed depending on when you look.
 - Emails go to a local folder; no email provider is connected, and deployed environments refuse to start until one is (Phase 8).
 - No admin screens beyond the activity log yet (suspending users, approving couriers, and editing menus arrive in Phase 6).
 - No deployment target configured; the app runs locally and in CI only.
