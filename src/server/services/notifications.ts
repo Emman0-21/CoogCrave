@@ -68,21 +68,20 @@ export async function notifyOrder(
 }
 
 /** What the courier is told when an admin steps into their delivery (T7, T9, T11 as ADMIN). */
-const COURIER_TEXT: Partial<Record<NotificationType, (n: OrderNotice) => { title: string; body: string }>> =
-  {
-    COURIER_RELEASED: (n) => ({
-      title: "Delivery reassigned",
-      body: `An admin took order ${n.orderNumber} off your list. You don't need to pick it up.`,
-    }),
-    ORDER_CANCELLED: (n) => ({
-      title: "Delivery cancelled",
-      body: `Order ${n.orderNumber} was cancelled by an admin. You don't need to pick it up.`,
-    }),
-    DELIVERY_FAILED: (n) => ({
-      title: "Delivery closed",
-      body: `An admin closed order ${n.orderNumber} as not delivered. It no longer needs you.`,
-    }),
-  };
+const COURIER_TEXT: Partial<Record<NotificationType, (n: OrderNotice) => { title: string; body: string }>> = {
+  COURIER_RELEASED: (n) => ({
+    title: "Delivery reassigned",
+    body: `An admin took order ${n.orderNumber} off your list. You don't need to pick it up.`,
+  }),
+  ORDER_CANCELLED: (n) => ({
+    title: "Delivery cancelled",
+    body: `Order ${n.orderNumber} was cancelled by an admin. You don't need to pick it up.`,
+  }),
+  DELIVERY_FAILED: (n) => ({
+    title: "Delivery closed",
+    body: `An admin closed order ${n.orderNumber} as not delivered. It no longer needs you.`,
+  }),
+};
 
 export async function notifyCourierOfAdminAction(
   db: DbExecutor,
