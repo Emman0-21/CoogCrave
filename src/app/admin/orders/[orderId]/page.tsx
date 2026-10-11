@@ -60,7 +60,9 @@ export default async function AdminOrderPage(props: PageProps<"/admin/orders/[or
                     <time dateTime={event.at}>{formatDateTime(event.at, CAMPUS_TIME_ZONE)}</time>
                     {", by "}
                     {ACTOR_LABEL[event.actorType].toLowerCase()}
-                    {event.actor && ` (${event.actor.name})`}
+                    {event.actor
+                      ? ` (${event.actor.name})`
+                      : event.actorType === "RESTAURANT_SIM" && " (automatic demo step)"}
                   </p>
                   {event.reason && <p className="mt-1">“{event.reason}”</p>}
                 </li>

@@ -14,3 +14,4 @@ process.env.ALLOWED_EMAIL_DOMAINS = "uh.edu";
 process.env.MAIL_TRANSPORT = "file";
 process.env.MAIL_OUTBOX_DIR = ".data/test-mail";
 process.env.DEMO_RESET_ENABLED = "false";
+process.env.DEMO_AUTO_ADVANCE = "false";
