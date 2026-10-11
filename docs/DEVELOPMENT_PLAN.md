@@ -79,13 +79,16 @@ Effort is a rough range of focused hours for one developer working with Claude; 
 **Tests:** state machine exhaustive table (U); T-05, T-06, T-09 (concurrency: N parallel accepts), courier double-accept across two offers.
 **Exit criteria:** J2 E2E; concurrency test green 20 consecutive runs (flakiness check).
 **Scope change (approved at the start of Phase 5):** a basic Kitchen Console (admin acts as `RESTAURANT_SIM` for T1, T3, T4) moved here from Phase 6, because J2 needs something to make orders ready.
-**Status:** `IN REVIEW` on `feature/courier-delivery`. All tasks done. Courier approval has no UI yet (admin decision, Phase 6); the demo seed and tests set it directly. Report: `PROGRESS.md`.
+**Status:** `DONE` (PR #5, merged).
 
 ### Phase 6 — Administration, notifications, reviews
 **Tasks:** admin dashboard/metrics; users (suspend); courier decisions; restaurant/menu/hours/options CRUD; admin order list + detail (admin projection); admin resolutions (T2, T4, T6, T7, T9, T11); audit log viewer; notifications (write in transitions, list, mark read, unread badge); reviews; demo reset + optional auto-advance.
 **Requirements:** ADM-1…10, NTF-1…2, REV-1…2.
 **Tests:** T-03, T-07, T-12, T-13, T-29; admin mutations write audit rows.
 **Exit criteria:** J3 and the full J4 demo E2E pass; draft `DEMO_GUIDE.md`.
+**Split (decided at the start of Phase 6):**
+- **6a** — courier decisions, users and suspension, admin order list and record, problem fixes (T2, T4, T6, T7, T9, T11 as ADMIN), activity log, dashboard, demo reset. **Status:** `IN REVIEW` on `feature/admin-operations`. Exit: J3 core E2E (approve, cancel from the record, suspend). Demo auto-advance moved to 6b with the rest of the demo tooling.
+- **6b** — notifications inbox and unread badge, reviews, restaurant and menu editing (essentials only), demo auto-advance, full J4, `DEMO_GUIDE.md`.
 
 ### Phase 7 — UI refinement & reliability
 **Tasks:** consistent visual pass; skeleton/empty/error states everywhere; responsive check at 360/768/1280 px; keyboard + screen-reader pass; axe checks in Playwright; reduced motion; CSP tightened with nonces; query review (`EXPLAIN` on offers, history, admin lists); bundle analysis; PWA manifest.
@@ -162,4 +165,4 @@ Cut from the top first. The bottom block is never cut because it's what makes th
 
 ## 8. Next action after approval
 
-After the Phase 5 checkpoint is approved and `feature/courier-delivery` is merged: Phase 6 (administration, notifications, reviews) on `feature/admin-operations`, starting with courier approval and the admin order view.
+After the Phase 6a checkpoint is approved and `feature/admin-operations` is merged: Phase 6b on `feature/notifications-reviews`, starting with the notifications inbox (the rows already exist).

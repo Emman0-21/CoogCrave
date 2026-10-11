@@ -172,4 +172,30 @@ describe("demo reset", () => {
     // Passwords are unchanged: the demo customer can still sign in.
     expect((await signIn(email("customer"), PASSWORD)).response.status).toBe(200);
   });
+
+  it("refuses while a demo courier is delivering someone else's order, and changes nothing", async () => {
+    const outsider = await signedInUser(uniqueEmail("outsider2"));
+    const orderId = await readyOrder(outsider);
+    const { jar: customer } = await signIn(email("customer"), PASSWORD);
+    await addToCart(customer, { menuItemId: seeded.item(BURGER, "cheeseburger"), quantity: 1 });
+    const { jar: courier } = await signIn(email("courier"), PASSWORD);
+    await db
+      .update(schema.courierProfiles)
+      .set({ isOnline: true, onlineSince: new Date() })
+      .where(eq(schema.courierProfiles.userId, ids.courier!));
+    expect((await transition(courier, orderId, { toStatus: "ASSIGNED" })).status).toBe(200);
+
+    await expect(resetDemo(admin, undefined, db, ON)).rejects.toMatchObject({
+      code: "ACTIVE_DELIVERY_IN_PROGRESS",
+    });
+    // Rolled back: the demo customer's cart and the courier's online status are still there.
+    expect(await db.select().from(schema.carts).where(eq(schema.carts.userId, ids.customer!))).toHaveLength(
+      1,
+    );
+    const [profile] = await db
+      .select()
+      .from(schema.courierProfiles)
+      .where(eq(schema.courierProfiles.userId, ids.courier!));
+    expect(profile?.isOnline).toBe(true);
+  });
 });

@@ -152,3 +152,21 @@ Each entry states whether it is an **automated self-review** (performed by Claud
 | 10 | Layout (known, deferred) | Under ~400 px the header (Restaurants, Orders, Deliver, Cart, Sign out) wraps to two rows | Low | Deferred to the Phase 7 visual pass; it remains usable and accessible | Phone screenshot |
 
 **Not changed, recorded for review:** courier approved/online status is read when the request starts rather than locked in the accept transaction (`ARCHITECTURE.md` §16); an admin unassigning a courier (Phase 6) will also hide the order from that courier's offers.
+
+---
+
+## 2026-10-11 · Phase 6a (admin operations) · Automated self-review
+
+**Scope:** all code on `feature/admin-operations`: admin decision rules, `admin-people`, `admin-orders`, `admin-ops` services and routes, changes to the referee and order routing, config flag, admin pages and components, tests, docs. Reviewed against `THREAT_MODEL.md` (T-03, T-07, T-12, T-29), with mutation checks and the J3 journey in a real browser. Work was interrupted once by a session limit and resumed; everything was re-run from scratch afterwards. **No human review has occurred yet.**
+
+| # | Area | Finding | Severity | Correction | Verification |
+|---|---|---|---|---|---|
+| 1 | Concurrency | Phase 5 read a courier's approved/online status when the request started. With admins able to suspend couriers, an accept that had already read "approved" could commit after the suspension | Medium | Accept re-reads the profile `FOR SHARE`; decisions and suspensions lock it `FOR UPDATE` | Race test, 15 rounds, both orderings observed; mutation: removing the re-read lets both succeed |
+| 2 | Data integrity | Demo reset restored demo couriers' profiles even while one was delivering a real customer's order, which would leave that order with a courier who might no longer be approved | Medium | Reset refuses with `409 ACTIVE_DELIVERY_IN_PROGRESS` and changes nothing | Integration test; mutation |
+| 3 | Safety | Suspending a courier mid-delivery could have quietly unassigned a customer's order | Medium (design) | Refused until an admin resolves the order explicitly (audited, both sides told) | Integration tests |
+| 4 | Access control | The admin layout first decided access itself, so a signed-out visitor wouldn't get the page's own "sign in and come back here" redirect | Low | Layout only chooses whether to show the navigation; each page enforces access | E2E: student → 404, admin activity page via sign-in |
+| 5 | Accessibility | The navigation's waiting-applications badge produced a run-together accessible name ("Couriers2 waiting") | Low | Space kept inside the screen-reader text | Component test on the link name |
+| 6 | Test validity | The J3 E2E looked for heading "Today", which also matched the hidden "Orders today" heading (strict-mode failure) | Low | Asserts the level-1 heading | E2E 30/30 |
+| 7 | Tests | The Phase 3 activity-log E2E pointed at `/admin`, which is now the dashboard | Low | Points at `/admin/activity` | E2E |
+
+**Not changed, recorded for review:** admin read endpoints (lists, metrics) have no limit beyond the default 300/min per IP, since only admins reach them; an admin's own order is handled as a customer's (`ARCHITECTURE.md` §16).

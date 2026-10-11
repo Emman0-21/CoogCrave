@@ -119,6 +119,19 @@ export async function resetDemo(
       : empty;
 
     if (ids.length) {
+      // A demo courier carrying someone else's order would be left holding it with a reset profile
+      // (the applicant goes back to PENDING and couldn't finish it). Refuse, and roll back the deletes.
+      const [busy] = await tx
+        .select({ id: deliveryAssignments.id })
+        .from(deliveryAssignments)
+        .innerJoin(courierProfiles, eq(courierProfiles.id, deliveryAssignments.courierId))
+        .where(and(inArray(courierProfiles.userId, ids), isNull(deliveryAssignments.endedAt)));
+      if (busy) {
+        throw new AppError(
+          "ACTIVE_DELIVERY_IN_PROGRESS",
+          "A demo courier is delivering someone else's order. Finish or unassign it, then reset.",
+        );
+      }
       const demoCouriers = tx
         .select({ id: courierProfiles.id })
         .from(courierProfiles)

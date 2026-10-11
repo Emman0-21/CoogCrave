@@ -64,7 +64,7 @@ Each requirement has an ID used in the development plan, tests, and PR template.
 | AUTH-4 | Sign in, sign out, persistent session (httpOnly cookie, server-side session record, revocable). | M |
 | AUTH-5 | Password reset by single-use, expiring emailed link. Responses never reveal whether an email is registered. | S |
 | AUTH-6 | Role and courier status are never accepted from client input at signup or profile update. | M |
-| AUTH-7 | Suspended users are signed out (sessions revoked) and cannot sign in. *Phase 3: suspended users can't sign in and every request with an existing session is refused. The admin action that suspends a user and deletes their sessions ships in Phase 6 (ADM-3).* | S |
+| AUTH-7 | Suspended users are signed out (sessions revoked) and cannot sign in. *Phase 3: suspended users can't sign in and every request with an existing session is refused. Phase 6a adds the admin action, which deletes their sessions.* | S |
 | AUTH-8 | Users can view and edit their display name and default drop point. | S |
 
 ### 4.2 Restaurant discovery (CAT)
@@ -128,16 +128,16 @@ Each requirement has an ID used in the development plan, tests, and PR template.
 
 | ID | Requirement | Pri |
 |---|---|---|
-| ADM-1 | Dashboard metrics: orders today by status, online couriers, pending courier applications, simulated GMV. | S |
-| ADM-2 | Review courier applications; approve or reject with a note; suspend an approved courier. | M |
-| ADM-3 | User list with search; suspend / unsuspend users. | S |
-| ADM-4 | Create, edit, and soft-delete restaurants (name, description, campus location, cuisines, hours, image, accepting-orders switch). | S |
-| ADM-5 | Manage menu categories, items (price, availability), and option groups/options. | S |
-| ADM-6 | Order list with filters; order detail with status history, assignment, simulated payment record, and review. | M |
+| ADM-1 | Dashboard metrics: orders today by status, online couriers, pending courier applications, simulated GMV. *Built (6a), plus active deliveries.* | S |
+| ADM-2 | Review courier applications; approve or reject with a note; suspend an approved courier. *Built (6a), plus reinstating a suspended courier. Suspending mid-delivery is refused until the order is resolved.* | M |
+| ADM-3 | User list with search; suspend / unsuspend users. *Built (6a). A reason is required; admins can't suspend themselves or other admins.* | S |
+| ADM-4 | *(6b, essentials only)* Create, edit, and soft-delete restaurants (name, description, campus location, cuisines, hours, image, accepting-orders switch). | S |
+| ADM-5 | *(6b, essentials only)* Manage menu categories, items (price, availability), and option groups/options. | S |
+| ADM-6 | Order list with filters; order detail with status history, assignment, simulated payment record, and review. *Built (6a) except the review, which arrives with reviews in 6b.* | M |
 | ADM-7 | **Kitchen Console:** perform simulated restaurant actions (confirm, mark ready, reject) on orders. Each action is labeled simulated and recorded with actor type `RESTAURANT_SIM`. *Built in Phase 5 (moved up from Phase 6 so the courier journey works end to end); each action also writes an audit row naming the admin.* | M |
-| ADM-8 | Resolve problems: cancel any non-terminal order with a reason; unassign a courier before pickup. | S |
-| ADM-9 | Every admin mutation writes an append-only audit event; admins can browse the audit log. | M |
-| ADM-10 | Demo reset (re-seed fixtures) — available only when `APP_ENV` is not `production` **and** `DEMO_RESET_ENABLED=true`, admin-only, audited. | M |
+| ADM-8 | Resolve problems: cancel any non-terminal order with a reason; unassign a courier before pickup. *Built (6a), plus closing a picked-up order as not delivered. The courier is notified when an admin takes their delivery.* | S |
+| ADM-9 | Every admin mutation writes an append-only audit event; admins can browse the audit log. *Built: the log since Phase 3; 6a adds reasons and links to each target.* | M |
+| ADM-10 | Demo reset (re-seed fixtures) — available only when `APP_ENV` is not `production` **and** `DEMO_RESET_ENABLED=true`, admin-only, audited. *Built (6a); also refused while a demo courier is delivering a real customer's order.* | M |
 
 ---
 
