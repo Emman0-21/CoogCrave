@@ -13,3 +13,4 @@ process.env.BETTER_AUTH_SECRET = "integration-test-secret-0123456789-abcdefghij"
 process.env.ALLOWED_EMAIL_DOMAINS = "uh.edu";
 process.env.MAIL_TRANSPORT = "file";
 process.env.MAIL_OUTBOX_DIR = ".data/test-mail";
+process.env.DEMO_RESET_ENABLED = "false";

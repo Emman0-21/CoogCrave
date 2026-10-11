@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { DbExecutor } from "@/server/db/client";
+import type { DecidedCourierStatus } from "@/server/domain/admin-rules";
 import { notifications } from "@/server/db/schema";
 import type { NotificationType } from "@/shared/enums";
 
@@ -64,4 +65,59 @@ export async function notifyOrder(
   await db
     .insert(notifications)
     .values({ userId: notice.userId, orderId: notice.orderId, type, ...text(notice) });
+}
+
+/** What the courier is told when an admin steps into their delivery (T7, T9, T11 as ADMIN). */
+const COURIER_TEXT: Partial<Record<NotificationType, (n: OrderNotice) => { title: string; body: string }>> =
+  {
+    COURIER_RELEASED: (n) => ({
+      title: "Delivery reassigned",
+      body: `An admin took order ${n.orderNumber} off your list. You don't need to pick it up.`,
+    }),
+    ORDER_CANCELLED: (n) => ({
+      title: "Delivery cancelled",
+      body: `Order ${n.orderNumber} was cancelled by an admin. You don't need to pick it up.`,
+    }),
+    DELIVERY_FAILED: (n) => ({
+      title: "Delivery closed",
+      body: `An admin closed order ${n.orderNumber} as not delivered. It no longer needs you.`,
+    }),
+  };
+
+export async function notifyCourierOfAdminAction(
+  db: DbExecutor,
+  type: NotificationType,
+  notice: OrderNotice,
+): Promise<void> {
+  const text = COURIER_TEXT[type];
+  if (!text) throw new Error(`No courier notification text for ${type}`);
+  await db
+    .insert(notifications)
+    .values({ userId: notice.userId, orderId: notice.orderId, type, ...text(notice) });
+}
+
+const DECISION_TEXT: Record<DecidedCourierStatus, { title: string; body: string }> = {
+  APPROVED: {
+    title: "You're approved to deliver",
+    body: "Open Deliver and go online to see orders ready for pickup.",
+  },
+  REJECTED: {
+    title: "Courier application not approved",
+    body: "Your application wasn't approved this time. You can read the note and apply again from Deliver.",
+  },
+  SUSPENDED: {
+    title: "Courier access paused",
+    body: "An admin paused your courier access, so you won't see deliveries for now.",
+  },
+};
+
+/** Tells an applicant or courier about an admin decision on their courier profile (PRD NTF-1). */
+export async function notifyCourierDecision(
+  db: DbExecutor,
+  userId: string,
+  outcome: DecidedCourierStatus,
+): Promise<void> {
+  await db
+    .insert(notifications)
+    .values({ userId, type: "COURIER_APPLICATION_DECIDED", ...DECISION_TEXT[outcome] });
 }

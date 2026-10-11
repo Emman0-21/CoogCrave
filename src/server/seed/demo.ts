@@ -1,7 +1,7 @@
 import "server-only";
 
 import { courierProfiles, userProfiles } from "@/server/db/schema";
-import type { Database } from "@/server/db/client";
+import type { Database, DbExecutor } from "@/server/db/client";
 import { upsertCredentialUser } from "@/server/accounts/accounts";
 import { recordAudit } from "@/server/services/audit";
 import type { CourierStatus, TransportMode, UserRole } from "@/shared/enums";
@@ -48,6 +48,44 @@ export const DEMO_ACCOUNTS: {
 export class DemoSeedRefused extends Error {}
 
 /**
+ * Puts a demo account's courier profile and user profile back to their starting state: the seeded
+ * courier status, offline, no review, no display name. Used by the seed and by demo reset (which
+ * leaves passwords alone).
+ */
+export async function restoreDemoProfiles(
+  tx: DbExecutor,
+  account: (typeof DEMO_ACCOUNTS)[number],
+  userId: string,
+): Promise<void> {
+  if (account.courier) {
+    const values = {
+      userId,
+      status: account.courier.status,
+      transportMode: account.courier.transportMode,
+      guidelinesAcceptedAt: new Date(),
+      isOnline: false,
+      onlineSince: null,
+      reviewedAt: null,
+      reviewedByUserId: null,
+      reviewNote: null,
+    };
+    await tx
+      .insert(courierProfiles)
+      .values({ id: seedId(`courier:${account.key}`), ...values })
+      .onConflictDoUpdate({ target: courierProfiles.userId, set: { ...values, updatedAt: new Date() } });
+  }
+
+  const profile = {
+    displayName: null,
+    defaultLocationId: account.defaultLocation ? seedId(`location:${account.defaultLocation}`) : null,
+  };
+  await tx
+    .insert(userProfiles)
+    .values({ userId, ...profile })
+    .onConflictDoUpdate({ target: userProfiles.userId, set: { ...profile, updatedAt: new Date() } });
+}
+
+/**
  * Idempotent: re-running resets the demo accounts to their starting state (including the password).
  * Refuses to run in production.
  */
@@ -74,29 +112,7 @@ export async function seedDemoAccounts(
         role: account.role,
       });
 
-      if (account.courier) {
-        const values = {
-          userId,
-          status: account.courier.status,
-          transportMode: account.courier.transportMode,
-          guidelinesAcceptedAt: new Date(),
-          isOnline: false,
-          onlineSince: null,
-        };
-        await tx
-          .insert(courierProfiles)
-          .values({ id: seedId(`courier:${account.key}`), ...values })
-          .onConflictDoUpdate({ target: courierProfiles.userId, set: { ...values, updatedAt: new Date() } });
-      }
-
-      const profile = {
-        displayName: null,
-        defaultLocationId: account.defaultLocation ? seedId(`location:${account.defaultLocation}`) : null,
-      };
-      await tx
-        .insert(userProfiles)
-        .values({ userId, ...profile })
-        .onConflictDoUpdate({ target: userProfiles.userId, set: { ...profile, updatedAt: new Date() } });
+      await restoreDemoProfiles(tx, account, userId);
 
       if (account.role === "ADMIN" && created) {
         await recordAudit(tx, {

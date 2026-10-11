@@ -10,16 +10,24 @@ import type { ActorType, OrderStatus, TransportMode } from "@/shared/enums";
 
 const uuid = (message = "Invalid ID.") => z.uuid(message);
 
+const SAFE_TEXT = /[\u0000-\u0009\u000b-\u001f\u007f<>]/;
+
+/** Required free text (a reason, a note): trimmed, 1–max characters, same character rules as notes. */
+export const requiredNote = (max: number, emptyMessage = "Give a reason.") =>
+  z
+    .string()
+    .trim()
+    .min(1, emptyMessage)
+    .max(max, `Use at most ${max} characters.`)
+    .refine((value) => !SAFE_TEXT.test(value), "Use letters, numbers, and punctuation only.");
+
 /** Optional free text: trimmed; empty becomes null; no control characters except line breaks; no < >. */
-const optionalNote = (max: number) =>
+export const optionalNote = (max: number) =>
   z
     .string()
     .trim()
     .max(max, `Use at most ${max} characters.`)
-    .refine(
-      (value) => !/[\u0000-\u0009\u000b-\u001f\u007f<>]/.test(value),
-      "Use letters, numbers, and punctuation only.",
-    )
+    .refine((value) => !SAFE_TEXT.test(value), "Use letters, numbers, and punctuation only.")
     .transform((value) => (value === "" ? null : value))
     .nullable()
     .optional()
@@ -34,7 +42,7 @@ const quantity = z
 
 // ── Catalog ────────────────────────────────────────────────────────────────────
 
-const oneOrMany = <T extends z.ZodType>(schema: T) =>
+export const oneOrMany = <T extends z.ZodType>(schema: T) =>
   z.union([schema, z.array(schema).max(10)]).transform((v) => (Array.isArray(v) ? v : [v]));
 
 export const restaurantListQuerySchema = z.strictObject({
@@ -242,7 +250,7 @@ export interface AllowedTransitionView {
 }
 
 export interface OrderDetailView {
-  viewer: "CUSTOMER" | "ADMIN";
+  viewer: "CUSTOMER";
   id: string;
   orderNumber: string;
   status: OrderStatus;
@@ -262,18 +270,9 @@ export interface OrderDetailView {
   price: PriceView;
   deliveryLocation: { id: string; name: string };
   deliveryInstructions: string | null;
-  timeline: {
-    status: OrderStatus;
-    at: string;
-    actorType: ActorType;
-    /** Admin projection only. */
-    actor?: { id: string; name: string } | null;
-    reason?: string | null;
-  }[];
-  payment: { mode: "DEMO"; status: "AUTHORIZED" | "CAPTURED" | "VOIDED"; amountCents?: number };
+  timeline: { status: OrderStatus; at: string; actorType: ActorType }[];
+  payment: { mode: "DEMO"; status: "AUTHORIZED" | "CAPTURED" | "VOIDED" };
   /** Once a courier is assigned: their first name and how they're getting around. */
   courier: { firstName: string; transportMode: TransportMode } | null;
-  /** Admin projection only. */
-  customer?: { id: string; name: string; email: string };
   allowedTransitions: AllowedTransitionView[];
 }

@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, eq, isNull, notInArray, sql } from "drizzle-orm";
 
-import type { Database } from "@/server/db/client";
+import type { DbExecutor } from "@/server/db/client";
 import * as s from "@/server/db/schema";
 
 import { CAMPUS, CUISINES, LOCATIONS, RESTAURANTS } from "./catalog-data";
@@ -27,7 +27,7 @@ export interface CatalogSummary {
  * soft-deleted, and cuisines no longer listed are removed once no active restaurant uses them. Restaurants
  * not flagged is_sample_data (added by an admin) are never touched.
  */
-export async function seedCatalog(db: Database): Promise<CatalogSummary> {
+export async function seedCatalog(db: DbExecutor): Promise<CatalogSummary> {
   return db.transaction(async (tx) => {
     const campusId = seedId(`campus:${CAMPUS.key}`);
     const { key: _campusKey, ...campus } = CAMPUS;
