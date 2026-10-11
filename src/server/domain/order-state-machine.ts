@@ -62,11 +62,6 @@ export function isTerminal(status: OrderStatus): boolean {
   return TERMINAL_STATUSES.includes(status);
 }
 
-/** Statuses a customer thinks of as "in progress" (order history's Active tab). */
-export function isActive(status: OrderStatus): boolean {
-  return !isTerminal(status);
-}
-
 export type TransitionDecision =
   | { allowed: true; rule: TransitionRule }
   | { allowed: false; code: "INVALID_TRANSITION" | "REASON_REQUIRED" };
