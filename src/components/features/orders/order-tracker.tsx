@@ -11,6 +11,7 @@ import { Notice } from "@/components/ui/notice";
 import { formatCents, formatTime } from "@/shared/format";
 import type { OrderDetailView } from "@/shared/schemas/ordering";
 
+import { TRANSPORT_LABEL } from "../courier/transport";
 import { HAPPY_PATH, STATUS_LABEL, STATUS_NEXT } from "./status-text";
 
 const POLL_MS = 5_000;
@@ -133,8 +134,8 @@ export function OrderTracker({ initial, timeZone }: { initial: OrderDetailView; 
 
         {!finished && (
           <p className="max-w-prose text-sm text-ink-muted">
-            This page updates on its own. Restaurant steps are simulated in this demo and run from the
-            CoogCrave Kitchen Console, which arrives in a later release.
+            This page updates on its own. Restaurant steps are simulated in this demo: a CoogCrave admin plays
+            the kitchen.
           </p>
         )}
 
@@ -182,6 +183,14 @@ export function OrderTracker({ initial, timeZone }: { initial: OrderDetailView; 
           <dd>{order.restaurant.pickupLocation}</dd>
           <dt className="text-ink-muted">Drop-off</dt>
           <dd className="font-bold">{order.deliveryLocation.name}</dd>
+          {order.courier && (
+            <>
+              <dt className="text-ink-muted">Courier</dt>
+              <dd>
+                {order.courier.firstName}, {TRANSPORT_LABEL[order.courier.transportMode].toLowerCase()}
+              </dd>
+            </>
+          )}
           {order.deliveryInstructions && (
             <>
               <dt className="text-ink-muted">Note</dt>

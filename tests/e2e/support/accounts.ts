@@ -74,3 +74,23 @@ export async function createConfirmedStudent(
   expect(verify.ok()).toBe(true);
   return email;
 }
+
+/**
+ * Makes an account an approved courier directly in the database, standing in for the admin approval
+ * screen that arrives in Phase 6. Runs against the same development database as the app under test.
+ */
+export async function approveCourier(email: string): Promise<void> {
+  const { Pool } = await import("pg");
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+  try {
+    const result = await pool.query(
+      `insert into courier_profiles (user_id, status, transport_mode, guidelines_accepted_at)
+       select id, 'APPROVED', 'BIKE', now() from users where email = $1
+       on conflict (user_id) do update set status = 'APPROVED'`,
+      [email.toLowerCase()],
+    );
+    expect(result.rowCount).toBe(1);
+  } finally {
+    await pool.end();
+  }
+}

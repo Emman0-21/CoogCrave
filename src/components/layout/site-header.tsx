@@ -27,6 +27,9 @@ export function SiteHeader({ user }: { user: HeaderUser | null }) {
             <Link href="/orders" className={LINK}>
               Orders
             </Link>
+            <Link href="/courier" className={LINK}>
+              Deliver
+            </Link>
             <Link
               href="/cart"
               aria-label={
