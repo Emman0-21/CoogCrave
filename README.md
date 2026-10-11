@@ -119,7 +119,7 @@ docs/               requirements, architecture, API, database, threat model, pla
 
 ## Known limitations (current)
 
-- Accounts only: restaurants, ordering, and delivery start in Phase 4. Restaurant names and menus in the seed data are fictional samples.
+- Accounts only: restaurants, ordering, and delivery start in Phase 4. The seed data uses real UH restaurant names, but their menus, prices, and hours are invented samples; none of these venues takes part in or endorses CoogCrave.
 - Emails go to a local folder; no email provider is connected, and deployed environments refuse to start until one is (Phase 8).
 - No admin screens beyond the activity log yet (suspending users, approving couriers, and editing menus arrive in Phase 6).
 - No deployment target configured; the app runs locally and in CI only.

@@ -208,7 +208,7 @@ Assumptions are the defaults the plan proceeds with if not answered. Open questi
 
 | # | Question | Default assumption |
 |---|---|---|
-| Q1 | Real UH venue names (with "sample menu — not affiliated" labels) or fictional names? | ~~Real on-campus venue names~~ **Phase 3 seed uses fictional restaurant names in real UH buildings** (decision D2 change, awaiting confirmation), generic imagery, sample menus/prices, disclaimer on every card |
+| Q1 | Real UH venue names (with "sample menu — not affiliated" labels) or fictional names? | **Decided (Phase 3 checkpoint): real UH venue names**, generic imagery, sample menus/prices/hours, "Sample menu — not affiliated" on every restaurant card and page |
 | Q2 | Restrict sign-up to UH email domains? | Yes in production; demo/judge accounts are seeded |
 | Q3 | Demo: show the Kitchen Console step live, or auto-advance restaurant steps? | Kitchen Console live; an auto-advance toggle exists for rehearsal in non-production only |
 | Q4 | Hackathon date, team size, and who builds what? | Unknown — affects scope cuts in `DEVELOPMENT_PLAN.md` |

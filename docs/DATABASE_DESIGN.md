@@ -18,7 +18,7 @@
 | Not soft-deleted | Orders, events, payments, reviews, audit events are never deleted; users are **suspended**, not deleted | History and accountability |
 | Constraints in the schema | Partial unique indexes (`uniqueIndex().on(...).where(...)`) and `CHECK` constraints (`check(...)`) are declared in the Drizzle schema, so they appear in generated migrations and drift checks like any other column (34 `CHECK`s today) | The DB enforces invariants even if application code has a bug |
 | Text lengths | User-supplied text uses `varchar(n)` with the limits shown below; the API validates the same limits first so users see a friendly message | A second wall behind the API's validation |
-| Same-restaurant rule | Rows that must stay inside one restaurant carry `restaurant_id` and use **composite foreign keys** `(x_id, restaurant_id)` → `parent (id, restaurant_id)` | The database itself refuses "a Smash & Shake burger in a Noodle Line cart" |
+| Same-restaurant rule | Rows that must stay inside one restaurant carry `restaurant_id` and use **composite foreign keys** `(x_id, restaurant_id)` → `parent (id, restaurant_id)` | The database itself refuses "a Burger Joint burger in a Panda Express cart" |
 | Grants | The app connects as `coogcrave_app` (DML only, no DDL). Migrations run as the owner role | A SQL injection can't drop tables; append-only tables are enforced by grants (§4.12) |
 
 ---
@@ -395,11 +395,11 @@ IDX `(created_at DESC)`, `(target_type, target_id)`.
 
 | Command | What it writes | Safe to re-run? |
 |---|---|---|
-| `pnpm db:seed` | The UH campus row (sample fees: $2.49 delivery, 5% service fee between $0.50 and $3.00, 8.25% sample tax, $5 minimum, $50 max tip), 13 real UH buildings as drop points, 9 cuisines, 6 **fictional** sample restaurants with hours, 21 menu items (one marked unavailable), and option groups | Yes. IDs are derived from stable keys (`seedId("restaurant:smash-and-shake")`), rows are upserted, and each restaurant's hours are replaced, so a second run leaves the same data |
+| `pnpm db:seed` | The UH campus row (sample fees: $2.49 delivery, 5% service fee between $0.50 and $3.00, 8.25% sample tax, $5 minimum, $50 max tip), 14 real UH buildings as drop points (including the RAD Center), 10 cuisines, 11 sample restaurants **using real UH venue names** (5 in the RAD Center, 6 in Student Center South) with sample hours, 31 sample menu items (one marked unavailable), and option groups. Sample restaurants dropped from the data file are soft-deleted, and cuisines no one uses any more are removed; restaurants an admin added (`is_sample_data = false`) are never touched | Yes. IDs are derived from stable keys (`seedId("restaurant:the-burger-joint")`), rows are upserted, and each restaurant's hours are replaced, so a second run leaves the same data |
 | `pnpm db:seed:demo` | Four demo accounts on the reserved `.test` domain: `customer@`, `courier@` (approved courier), `applicant@` (pending courier), `admin@` — all `@demo.coogcrave.test`, all email-verified | Yes. Resets their passwords to `SEED_DEMO_PASSWORD` (from `.env`, 10+ characters, never in source). **Refuses when `APP_ENV=production`** |
 | `pnpm admin:create --email <e> --name <n>` | Creates a verified admin account, or promotes an existing one (which keeps its own password), and writes a `SYSTEM` audit event (`user.create_admin` / `user.promote_admin`, `metadata.via = "cli:admin:create"`) | Yes. The password comes from `ADMIN_PASSWORD` or a hidden prompt, never a command-line argument (which would land in shell history); a new account's password must pass the password policy |
 
-- All seeded restaurants have `is_sample_data = true` and invented names (decision D2, `DEVELOPMENT_PLAN.md`; answers PRD Q1). The buildings are real UH places, because delivery destinations should be recognizable; menus, prices, hours, and images are sample data and the UI says so.
+- All seeded restaurants have `is_sample_data = true`. Their **names are real** UH venues (decision D2, `DEVELOPMENT_PLAN.md`; answers PRD Q1), but descriptions, menus, prices, options, and hours are invented sample data, and the UI must label every restaurant "Sample menu — not affiliated". No logos or brand marks. Venue names were checked against UH's listings on 2026-10-10; campus dining changes, so re-check before a demo.
 - Demo emails use `.test`, a top-level domain reserved so it can never receive real mail.
 
 ---

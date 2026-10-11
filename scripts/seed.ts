@@ -13,4 +13,7 @@ await runCli(async () => {
     `Seeded ${summary.locations} campus locations, ${summary.cuisines} cuisines, ` +
       `${summary.restaurants} sample restaurants with ${summary.menuItems} menu items.`,
   );
+  if (summary.retiredRestaurants > 0) {
+    console.log(`Retired ${summary.retiredRestaurants} sample restaurants no longer in the seed data.`);
+  }
 }, closeDb);

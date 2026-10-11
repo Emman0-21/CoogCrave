@@ -1,6 +1,6 @@
 # CoogCrave — Development Plan
 
-> **Status:** Approved at Phase 1 (defaults applied to D2–D7); Phase 2 complete and merged; Phase 3 in review · **Last updated:** 2026-10-11
+> **Status:** Approved at Phase 1 (defaults applied to D3–D7; D2 decided at Phase 3); Phases 2 and 3 complete · **Last updated:** 2026-10-11
 > Requirement IDs (AUTH-, CAT-, CART-, ORD-, DLV-, TRK-, NTF-, REV-, ADM-, NFR-) refer to `PRODUCT_REQUIREMENTS.md`; threat IDs (T-xx) to `THREAT_MODEL.md`.
 
 ---
@@ -21,7 +21,7 @@ Defaults are what the plan assumes if there's no answer.
 | # | Decision | Default | Impact if changed |
 |---|---|---|---|
 | D1 | Approve the stack (Next.js + Postgres + Better Auth) **or** switch to a Spring Boot API + Next.js frontend | **Approved: Next.js monolith.** ORM changed from Prisma to Drizzle during Phase 2, with approval (`ARCHITECTURE.md` §16) | — |
-| D2 | Real UH venue names vs fictional (Q1) | ~~Real on-campus names~~ → **Phase 3 seed uses fictional restaurant names** in real UH buildings, sample menus/prices, no logos, disclaimers. Changed from the default; awaiting confirmation at the Phase 3 checkpoint (`ARCHITECTURE.md` §16) | Fictional removes trademark/affiliation risk entirely; switching back only touches `src/server/seed/catalog-data.ts` |
+| D2 | Real UH venue names vs fictional (Q1) | **Decided at the Phase 3 checkpoint: real UH venue names** (Student Center South and RAD Center), sample menus/prices/hours, no logos, "Sample menu — not affiliated" labels | Data lives in `src/server/seed/catalog-data.ts`; re-check names before a demo |
 | D3 | UH-only sign-up domains (Q2) | `uh.edu` and its subdomains (covers `cougarnet.uh.edu`) | — |
 | D4 | Demo shows Kitchen Console live vs auto-advance (Q3) | Kitchen Console live; auto-advance available for rehearsal | — |
 | D5 | Hackathon deadline, team size, who builds what (Q4) | Unknown | Drives the scope-cut ladder (§6) |
@@ -64,7 +64,7 @@ Effort is a rough range of focused hours for one developer working with Claude; 
 **Requirements:** AUTH-1…8, ADM-9 (audit plumbing).
 **Tests:** T-02, T-12, T-14 – T-19, T-28; migrations apply on empty DB; seed idempotency.
 **Exit criteria:** auth E2E (register → verify via outbox → sign in → sign out); role-access matrix passes for existing endpoints.
-**Status:** `IN REVIEW` on `feature/auth-persistence`. All tasks done except the admin suspend endpoint (AUTH-7's "sessions revoked" half), which moves to Phase 6 with the other admin user tools; suspension itself is enforced on every request and at sign-in. Report: `PROGRESS.md`.
+**Status:** `COMPLETE` (approved at the checkpoint; merged from `feature/auth-persistence`). D2 follow-up on `chore/real-restaurant-names`. All tasks done except the admin suspend endpoint (AUTH-7's "sessions revoked" half), which moves to Phase 6 with the other admin user tools; suspension itself is enforced on every request and at sign-in. Report: `PROGRESS.md`.
 
 ### Phase 4 — Customer experience
 **Tasks:** restaurant list/search/filter, detail + menu, open-hours logic; server cart; option validation; pricing module; quote; order placement (idempotent, snapshots, simulated payment); confirmation; order detail with projections; tracking timeline + polling; order history; customer cancel.
@@ -153,7 +153,7 @@ Cut from the top first. The bottom block is never cut because it's what makes th
 | No Docker daemon in this sandbox | Certain | Low | Native Postgres here, service container in CI, compose file for teammates |
 | No hosting/email credentials (D6) | Medium | Medium | Local file outbox; deployment documented as blocked until credentials exist |
 | Concurrency test flakiness | Low | Medium | Deterministic setup; 20× repeat run at Phase 5 checkpoint |
-| Trademark/affiliation concerns with real venue names (D2) | Low | Medium | Disclaimers, no logos, sample-data badges; seed now uses fictional names (pending confirmation) |
+| Trademark/affiliation concerns with real venue names (D2) | Low | Medium | Real names chosen deliberately; mitigated with "Sample menu — not affiliated" labels, no logos or brand marks, generic item names, footer and landing disclaimers. Switch to fictional names if any venue or UH objects (one data file) |
 
 ---
 
