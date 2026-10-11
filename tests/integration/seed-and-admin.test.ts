@@ -12,7 +12,7 @@ import { seedId } from "@/server/seed/ids";
 
 import { signIn } from "../support/auth";
 import { openPool, resetDatabase } from "../support/db";
-import { testDb, type TestDb } from "../support/fixtures";
+import { createCampus, createLocation, testDb, type TestDb } from "../support/fixtures";
 import { appRequest, STRONG_PASSWORD } from "../support/http";
 
 const DEMO_PASSWORD = "maroon-lantern-bicycle-42";
@@ -54,7 +54,14 @@ describe("seed data and admin provisioning", () => {
       const afterFirst = await tally();
       await seedCatalog(db);
       expect(await tally()).toEqual(afterFirst);
-      expect(first).toEqual({ campuses: 1, locations: 13, cuisines: 9, restaurants: 6, menuItems: 21 });
+      expect(first).toEqual({
+        campuses: 1,
+        locations: 14,
+        cuisines: 10,
+        restaurants: 11,
+        menuItems: 31,
+        retiredRestaurants: 0,
+      });
     });
 
     it("flags every restaurant as sample data, with hours, cuisines, and menus", async () => {
@@ -82,7 +89,7 @@ describe("seed data and admin provisioning", () => {
 
     it("restores rows an admin changed back to the seed values", async () => {
       await seedCatalog(db);
-      const id = seedId("item:smash-and-shake:double-smash");
+      const id = seedId("item:the-burger-joint:double-cheeseburger");
       await db
         .update(schema.menuItems)
         .set({ priceCents: 1, deletedAt: new Date() })
@@ -90,6 +97,52 @@ describe("seed data and admin provisioning", () => {
       await seedCatalog(db);
       const [item] = await db.select().from(schema.menuItems).where(eq(schema.menuItems.id, id));
       expect(item).toMatchObject({ priceCents: 899, deletedAt: null });
+    });
+
+    it("retires sample restaurants and cuisines dropped from the data file, but never admin-added ones", async () => {
+      const campus = await createCampus(db);
+      const location = await createLocation(db, campus.id);
+      // A database seeded by an earlier data file (e.g. the Phase 3 fictional restaurants).
+      const [oldCuisine] = await db
+        .insert(schema.cuisines)
+        .values({ slug: "pizza", name: "Pizza" })
+        .returning();
+      const [oldSample] = await db
+        .insert(schema.restaurants)
+        .values({
+          campusId: campus.id,
+          locationId: location.id,
+          slug: "late-lab-pizza",
+          name: "Late Lab Pizza",
+        })
+        .returning();
+      await db
+        .insert(schema.restaurantCuisines)
+        .values({ restaurantId: oldSample!.id, cuisineId: oldCuisine!.id });
+      const [adminAdded] = await db
+        .insert(schema.restaurants)
+        .values({
+          campusId: campus.id,
+          locationId: location.id,
+          slug: "admin-added",
+          name: "Admin-added restaurant",
+          isSampleData: false,
+        })
+        .returning();
+
+      const summary = await seedCatalog(db);
+      expect(summary.retiredRestaurants).toBe(1);
+
+      const byId = async (id: string) =>
+        (await db.select().from(schema.restaurants).where(eq(schema.restaurants.id, id)))[0];
+      expect((await byId(oldSample!.id))?.deletedAt).toBeInstanceOf(Date);
+      expect((await byId(adminAdded!.id))?.deletedAt).toBeNull();
+      expect(await db.select().from(schema.cuisines).where(eq(schema.cuisines.slug, "pizza"))).toHaveLength(
+        0,
+      );
+
+      // Running again finds nothing left to retire.
+      expect((await seedCatalog(db)).retiredRestaurants).toBe(0);
     });
   });
 

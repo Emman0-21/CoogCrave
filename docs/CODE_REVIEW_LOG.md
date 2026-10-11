@@ -88,3 +88,15 @@ Each entry states whether it is an **automated self-review** (performed by Claud
 - Phase 3 CI hasn't run on GitHub yet; it runs when `feature/auth-persistence` is pushed.
 - Suspension doesn't delete sessions until the Phase 6 admin endpoint exists (it's enforced on every request meanwhile).
 - Better Auth 1.7.7 is recent; behavior we rely on (origin checks, `disabledPaths`, enumeration-safe answers, cookie attributes) is pinned by integration tests, so an upgrade that changes it will fail CI rather than slip through.
+
+---
+
+## 2026-10-11 · D2 follow-up (real restaurant names) · Automated self-review
+
+**Scope:** `chore/real-restaurant-names`: seed data, seed retirement logic, tests, docs. **No human review has occurred yet.**
+
+| # | Area | Finding | Severity | Correction | Verification |
+|---|---|---|---|---|---|
+| 1 | Data migration | Changing the data file alone would leave the old fictional restaurants live in any database already seeded (the seed only upserted) | Medium | Seed soft-deletes sample restaurants missing from the data file and removes unused cuisines; admin-added restaurants untouched | Integration test (mutation-checked); real run on the dev database retired all six old restaurants |
+| 2 | Accuracy | Venue names come from UH pages that change; a 2024 article listed "The Nook Café", which UH now lists as Katz Coffee | Low | Only venues on UH's current listings were used; header comment and docs say to re-check before a demo | Sources noted in `catalog-data.ts` |
+| 3 | Affiliation | Real brand names next to invented menus | Low | Generic item names, no logos, `is_sample_data` on every row; "Sample menu — not affiliated" label required in Phase 4 restaurant UI (T-32) | Phase 4 component tests will assert the label |

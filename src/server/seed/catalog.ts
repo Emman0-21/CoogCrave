@@ -1,6 +1,6 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, notInArray, sql } from "drizzle-orm";
 
 import type { Database } from "@/server/db/client";
 import * as s from "@/server/db/schema";
@@ -14,12 +14,18 @@ export interface CatalogSummary {
   cuisines: number;
   restaurants: number;
   menuItems: number;
+  /** Sample restaurants from an earlier seed that are no longer in the data file (soft-deleted now). */
+  retiredRestaurants: number;
 }
 
 /**
  * Idempotent catalog seed (docs/DATABASE_DESIGN.md §7): campus, drop points, cuisines, sample
  * restaurants with hours and menus. Every insert updates the existing row on conflict, so running it
  * twice changes nothing. Runs in one transaction as the app role (DML only).
+ *
+ * Sample restaurants that an earlier version of the data file created, but that are no longer in it, are
+ * soft-deleted, and cuisines no longer listed are removed once no active restaurant uses them. Restaurants
+ * not flagged is_sample_data (added by an admin) are never touched.
  */
 export async function seedCatalog(db: Database): Promise<CatalogSummary> {
   return db.transaction(async (tx) => {
@@ -155,12 +161,40 @@ export async function seedCatalog(db: Database): Promise<CatalogSummary> {
       }
     }
 
+    const seededRestaurantIds = RESTAURANTS.map((r) => seedId(`restaurant:${r.key}`));
+    const retired = await tx
+      .update(s.restaurants)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(s.restaurants.isSampleData, true),
+          isNull(s.restaurants.deletedAt),
+          notInArray(s.restaurants.id, seededRestaurantIds),
+        ),
+      )
+      .returning({ id: s.restaurants.id });
+
+    await tx.delete(s.cuisines).where(
+      and(
+        notInArray(
+          s.cuisines.slug,
+          CUISINES.map((c) => c.key),
+        ),
+        sql`not exists (
+          select 1 from ${s.restaurantCuisines}
+          join ${s.restaurants} on ${s.restaurants.id} = ${s.restaurantCuisines.restaurantId}
+          where ${s.restaurantCuisines.cuisineId} = ${s.cuisines.id} and ${s.restaurants.deletedAt} is null
+        )`,
+      ),
+    );
+
     return {
       campuses: 1,
       locations: LOCATIONS.length,
       cuisines: CUISINES.length,
       restaurants: RESTAURANTS.length,
       menuItems,
+      retiredRestaurants: retired.length,
     };
   });
 }

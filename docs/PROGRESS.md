@@ -1,6 +1,6 @@
 # CoogCrave — Progress
 
-**Current phase:** 3 — Authentication & persistence · **Status:** `IN REVIEW` (awaiting Phase 3 checkpoint approval)
+**Current phase:** 3 — Authentication & persistence · **Status:** `COMPLETE` (approved at the checkpoint; CI green). D2 follow-up in review on `chore/real-restaurant-names`
 **Branch:** `feature/auth-persistence` (9 commits on top of `main` at `7f43939`, including a small Phase 2 follow-up fix) · **Last updated:** 2026-10-11
 
 ---
@@ -75,7 +75,7 @@ No test was weakened or skipped to pass. Details: `CODE_REVIEW_LOG.md` (Phase 3)
 | Risk | Impact | Next step |
 |---|---|---|
 | Phase 3 CI hasn't run on GitHub | Workflow changes (seed step, new env vars) unproven in CI | Push the branch; both workflows run on the PR |
-| **D2 changed without your sign-off:** restaurants are fictional | If you wanted real venue names, the seed doesn't match the approved plan | Confirm at this checkpoint; reverting touches one data file |
+| ~~D2 changed without your sign-off~~ **Resolved:** you chose real UH names | — | Done in the follow-up below |
 | No email provider | Can't deploy; local users read emails from `.data/mail` | Phase 8 decision (D6) |
 | `Secure` cookie flag untested over https | A misconfigured deploy could send cookies over http | Check on the first https deployment |
 | Suspension doesn't delete sessions yet | A suspended user's session row lingers (but every request is refused) | Phase 6 admin endpoint |
@@ -91,6 +91,15 @@ No test was weakened or skipped to pass. Details: `CODE_REVIEW_LOG.md` (Phase 3)
 1. Review the branch and decide on **D2** (fictional vs real restaurant names).
 2. Push `feature/auth-persistence` and open a PR to `main`, so CI runs.
 3. On approval and merge: Phase 4 (customer experience) on `feature/customer-ordering`, starting with the pure pricing and opening-hours rules.
+
+### Follow-up: D2 resolved (`chore/real-restaurant-names`)
+
+You chose **real UH restaurant names** at the checkpoint.
+
+- **Seed:** 11 venues listed by UH (RAD Center: The Burger Joint, The Taco Stand, Absurd Bird, Paper Lantern, Katz Coffee; Student Center South: Chick-fil-A, Panda Express, Starbucks, Asado, Houston Street Subs, Shasta's Cones & More). Menus, prices, options, and hours remain invented samples. RAD Center added as a building (14 total); cuisines updated (10).
+- **Upgrade path:** the seed now soft-deletes sample restaurants that are no longer in the data file and removes unused cuisines, never touching admin-added restaurants. Running it on a database holding the Phase 3 fictional restaurants retired all six.
+- **Tests:** a new integration test covers retirement (mutation-checked); 243/243 Vitest and 20/20 E2E pass.
+- **Labels:** every restaurant must show "Sample menu — not affiliated"; that UI arrives with restaurant pages in Phase 4.
 
 ---
 
@@ -171,7 +180,7 @@ All 52 Vitest tests pass. Three failures occurred during development and were fi
 |---|---|
 | 1 — Discovery & architecture | `COMPLETE` (approved 2026-10-10) |
 | 2 — Project foundation | `COMPLETE` (merged to `main` in PR #1, `7f43939`) |
-| 3 — Authentication & persistence | `IN REVIEW` |
+| 3 — Authentication & persistence | `COMPLETE` (approved 2026-10-11) |
 | 4–8 | `NOT STARTED` |
 
 ## Blockers
