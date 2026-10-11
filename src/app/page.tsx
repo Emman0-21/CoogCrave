@@ -15,7 +15,10 @@ export default function HomePage() {
           <h1 id="hero-title" className="font-display text-display font-black tracking-tight text-balance">
             {/* The space keeps the two lines separate words for screen readers and copy/paste. */}
             <span className="block font-wide">Cravings delivered.</span>{" "}
-            <span className="mt-2 block font-narrow">By Coogs, for Coogs.</span>
+            {/* Condensed type needs normal tracking and extra word spacing, or "By Coogs" reads as one word. */}
+            <span className="mt-2 block tracking-normal font-narrow [word-spacing:0.12em]">
+              By Coogs, for Coogs.
+            </span>
           </h1>
           <p className="mt-6 max-w-[34rem] text-lg leading-relaxed text-ink-muted">
             Order from spots around campus and have it brought to your building, whether that&apos;s the
