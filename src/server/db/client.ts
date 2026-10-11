@@ -9,6 +9,10 @@ import { getConfig } from "@/server/config";
 import * as schema from "./schema";
 
 export type Database = NodePgDatabase<typeof schema>;
+/** A transaction handle from db.transaction(); has the same query API as Database. */
+export type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+/** Anything that can run queries: the pool-backed database or an open transaction. */
+export type DbExecutor = Database | Transaction;
 
 interface DbHandle {
   pool: Pool;
