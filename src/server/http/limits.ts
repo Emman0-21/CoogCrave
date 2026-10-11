@@ -15,3 +15,8 @@ export const ORDER_TRANSITION_LIMIT: RouteRateLimit = {
   by: "user",
   rule: { name: "api.order_transition.user", limit: 60, windowSeconds: 60 },
 };
+
+export const COURIER_ACTION_LIMIT: RouteRateLimit = {
+  by: "user",
+  rule: { name: "api.courier_action.user", limit: 60, windowSeconds: 60 },
+};

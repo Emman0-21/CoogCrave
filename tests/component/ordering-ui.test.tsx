@@ -250,6 +250,7 @@ const placedOrder: OrderDetailView = {
   deliveryInstructions: null,
   timeline: [{ status: "PLACED", at: "2026-10-14T19:00:00.000Z", actorType: "CUSTOMER" }],
   payment: { mode: "DEMO", status: "AUTHORIZED" },
+  courier: null,
   allowedTransitions: [{ toStatus: "CANCELLED", actingAs: null, reasonRequired: false }],
 };
 

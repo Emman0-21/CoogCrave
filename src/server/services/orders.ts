@@ -1,27 +1,32 @@
 import "server-only";
 
-import { and, asc, desc, eq, inArray, notInArray, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, notInArray, or, type SQL, sql } from "drizzle-orm";
 
 import { type Database, type DbExecutor, getDb } from "@/server/db/client";
 import {
   campusLocations,
+  courierProfiles,
+  deliveryAssignments,
   orderItemOptions,
   orderItems,
   orders,
   orderStatusEvents,
   payments,
   restaurants,
+  userProfiles,
+  users,
 } from "@/server/db/schema";
 import type { Actor } from "@/server/domain/actor";
 import {
-  allowedTransitions,
-  checkTransition,
-  TERMINAL_STATUSES,
-  TRANSITIONS,
-} from "@/server/domain/order-state-machine";
+  COURIER_ACCESS_AFTER_END_MS,
+  courierCanSeeInstructions,
+  customerNameForCourier,
+  firstNameOf,
+  payoutFor,
+} from "@/server/domain/delivery";
+import { allowedTransitions, checkTransition, TERMINAL_STATUSES } from "@/server/domain/order-state-machine";
 import { AppError } from "@/server/http/errors";
-import { getPaymentGateway, type PaymentGateway } from "@/server/payments/gateway";
-import type { ActorType, NotificationType, OrderStatus } from "@/shared/enums";
+import type { CourierOrderView, KitchenOrderView } from "@/shared/schemas/delivery";
 import type {
   OrderDetailView,
   OrderListQuery,
@@ -29,15 +34,17 @@ import type {
   TransitionInput,
 } from "@/shared/schemas/ordering";
 
-import { notifyOrder } from "./notifications";
+import { loadKitchenOrder } from "./kitchen";
+import { transitionOrder } from "./order-workflow";
 import { decodeCursor, encodeCursor, microsecondTimestamp } from "./pagination";
 
 /**
- * Orders after placement: history, detail, and status changes (PRD ORD-7…9, TRK-1).
+ * Orders after placement: history, detail, and status changes (PRD ORD-7…9, TRK-1, DLV-7…9).
  *
- * Visibility (THREAT_MODEL T-01): in Phase 4 only the customer who placed an order can see it. Every
- * query filters by customer ID, and anyone else gets the same 404 as for an order that doesn't exist,
- * so order IDs can't be probed. Courier and admin projections arrive with those features (Phases 5–6).
+ * Visibility (THREAT_MODEL T-01, T-05): the customer who placed an order sees the customer projection;
+ * the courier assigned to it sees the courier projection while the delivery is active and for 24 hours
+ * after; anyone else gets the same 404 as for an order that doesn't exist, so IDs can't be probed.
+ * The admin projection arrives with the admin tools (Phase 6); the Kitchen Console has its own view.
  */
 
 const NOT_FOUND = () => new AppError("NOT_FOUND", "We couldn't find that order.");
@@ -63,7 +70,7 @@ export async function loadCustomerOrder(
   if (!order) return null;
   const o = order.order;
 
-  const [items, events, [payment]] = await Promise.all([
+  const [items, events, [payment], [courier]] = await Promise.all([
     db.select().from(orderItems).where(eq(orderItems.orderId, o.id)).orderBy(asc(orderItems.id)),
     db
       .select({
@@ -75,6 +82,19 @@ export async function loadCustomerOrder(
       .where(eq(orderStatusEvents.orderId, o.id))
       .orderBy(asc(orderStatusEvents.createdAt), asc(orderStatusEvents.id)),
     db.select({ status: payments.status }).from(payments).where(eq(payments.orderId, o.id)),
+    // The courier on the active assignment, or the one who delivered it.
+    db
+      .select({ name: users.name, transportMode: courierProfiles.transportMode })
+      .from(deliveryAssignments)
+      .innerJoin(courierProfiles, eq(courierProfiles.id, deliveryAssignments.courierId))
+      .innerJoin(users, eq(users.id, courierProfiles.userId))
+      .where(
+        and(
+          eq(deliveryAssignments.orderId, o.id),
+          or(isNull(deliveryAssignments.endedAt), eq(deliveryAssignments.endReason, "DELIVERED")),
+        ),
+      )
+      .limit(1),
   ]);
   const options = items.length
     ? await db
@@ -134,6 +154,7 @@ export async function loadCustomerOrder(
       actorType: e.actorType,
     })),
     payment: { mode: "DEMO", status: payment?.status ?? "AUTHORIZED" },
+    courier: courier ? { firstName: firstNameOf(courier.name), transportMode: courier.transportMode } : null,
     allowedTransitions: allowedTransitions(o.status, "CUSTOMER").map((toStatus) => ({
       toStatus,
       actingAs: null,
@@ -142,7 +163,7 @@ export async function loadCustomerOrder(
   };
 }
 
-/** GET /api/v1/orders/{orderId} */
+/** The caller's own order, customer projection only (customer pages). */
 export async function getOrder(
   actor: Actor,
   orderId: string,
@@ -151,6 +172,119 @@ export async function getOrder(
   const order = await loadCustomerOrder(db, orderId, actor.userId);
   if (!order) throw NOT_FOUND();
   return order;
+}
+
+/**
+ * The courier projection, for the courier who holds the order now or whose delivery ended within the
+ * last 24 hours. `null` for any other courier, including one who only saw it as an offer.
+ */
+export async function loadCourierOrder(
+  db: DbExecutor,
+  orderId: string,
+  courierId: string,
+  now: Date = new Date(),
+): Promise<CourierOrderView | null> {
+  const recent = new Date(now.getTime() - COURIER_ACCESS_AFTER_END_MS);
+  const [row] = await db
+    .select({
+      order: orders,
+      assignment: deliveryAssignments,
+      pickupLocation: campusLocations.name,
+      pickupNotes: restaurants.pickupNotes,
+      customerFullName: users.name,
+      customerDisplayName: userProfiles.displayName,
+    })
+    .from(deliveryAssignments)
+    .innerJoin(orders, eq(orders.id, deliveryAssignments.orderId))
+    .innerJoin(restaurants, eq(restaurants.id, orders.restaurantId))
+    .innerJoin(campusLocations, eq(campusLocations.id, restaurants.locationId))
+    .innerJoin(users, eq(users.id, orders.customerId))
+    .leftJoin(userProfiles, eq(userProfiles.userId, orders.customerId))
+    .where(
+      and(
+        eq(deliveryAssignments.orderId, orderId),
+        eq(deliveryAssignments.courierId, courierId),
+        or(isNull(deliveryAssignments.endedAt), gte(deliveryAssignments.endedAt, recent)),
+      ),
+    )
+    .orderBy(desc(deliveryAssignments.assignedAt))
+    .limit(1);
+  if (!row) return null;
+  const { order: o, assignment: a } = row;
+
+  const [items, events] = await Promise.all([
+    db.select().from(orderItems).where(eq(orderItems.orderId, o.id)).orderBy(asc(orderItems.id)),
+    db
+      .select({ status: orderStatusEvents.toStatus, at: orderStatusEvents.createdAt })
+      .from(orderStatusEvents)
+      .where(eq(orderStatusEvents.orderId, o.id))
+      .orderBy(asc(orderStatusEvents.createdAt), asc(orderStatusEvents.id)),
+  ]);
+  const options = items.length
+    ? await db
+        .select({ orderItemId: orderItemOptions.orderItemId, name: orderItemOptions.optionNameSnapshot })
+        .from(orderItemOptions)
+        .where(
+          inArray(
+            orderItemOptions.orderItemId,
+            items.map((i) => i.id),
+          ),
+        )
+        .orderBy(asc(orderItemOptions.id))
+    : [];
+
+  return {
+    viewer: "COURIER",
+    id: o.id,
+    orderNumber: o.orderNumber,
+    status: o.status,
+    version: o.version,
+    restaurant: {
+      name: o.restaurantNameSnapshot,
+      pickupLocation: row.pickupLocation,
+      pickupNotes: row.pickupNotes,
+    },
+    items: items.map((item) => ({
+      name: item.nameSnapshot,
+      quantity: item.quantity,
+      options: options.filter((opt) => opt.orderItemId === item.id).map((opt) => opt.name),
+      specialInstructions: item.specialInstructions,
+    })),
+    deliveryLocation: { name: o.deliveryLocationSnapshot },
+    deliveryInstructions: courierCanSeeInstructions(a) ? o.deliveryInstructions : null,
+    customerName: customerNameForCourier(row.customerDisplayName, row.customerFullName),
+    timeline: events.map((e) => ({ status: e.status, at: e.at.toISOString() })),
+    assignment: {
+      assignedAt: a.assignedAt.toISOString(),
+      pickedUpAt: a.pickedUpAt?.toISOString() ?? null,
+      endedAt: a.endedAt?.toISOString() ?? null,
+      endReason: a.endReason,
+    },
+    payoutCents: a.payoutCents ?? payoutFor(o),
+    payoutIsSimulated: true,
+    allowedTransitions:
+      a.endedAt === null
+        ? allowedTransitions(o.status, "COURIER").map((toStatus) => ({
+            toStatus,
+            reasonRequired: checkTransition(o.status, toStatus, "COURIER").allowed === false,
+          }))
+        : [],
+  };
+}
+
+/** GET /api/v1/orders/{orderId}: the projection for whoever is asking (API_SPEC §7.1), or 404. */
+export async function getOrderForViewer(
+  actor: Actor,
+  orderId: string,
+  db: Database = getDb(),
+): Promise<OrderDetailView | CourierOrderView> {
+  const asCustomer = await loadCustomerOrder(db, orderId, actor.userId);
+  if (asCustomer) return asCustomer;
+  if (actor.courier) {
+    const asCourier = await loadCourierOrder(db, orderId, actor.courier.id);
+    if (asCourier) return asCourier;
+  }
+  throw NOT_FOUND();
 }
 
 // ── History ──────────────────────────────────────────────────────────────────
@@ -215,165 +349,74 @@ export async function listOrders(
 
 // ── Status changes ───────────────────────────────────────────────────────────
 
-const NOTIFY_CUSTOMER: Partial<Record<OrderStatus, NotificationType>> = {
-  CONFIRMED: "ORDER_CONFIRMED",
-  READY_FOR_PICKUP: "ORDER_READY",
-  CANCELLED: "ORDER_CANCELLED",
-};
-
 /**
- * Transitions whose side effects exist so far. Courier assignment moves (T5, T7–T11) create, release, or
- * complete delivery assignments and payouts, which are built with the courier features in Phase 5; until
- * then they are refused here rather than half-applied.
+ * POST /api/v1/orders/{orderId}/transitions (API_SPEC §7). Works out who the caller is to this order and
+ * hands the move to the referee (order-workflow.ts):
+ *  - an admin sending `actingAs: "RESTAURANT_SIM"` is the simulated restaurant (Kitchen Console), audited;
+ *  - the order's customer is CUSTOMER (can cancel while PLACED);
+ *  - a courier is COURIER, either accepting an offer or moving their own delivery along;
+ *  - anyone else gets 404.
  */
-const SUPPORTED_RULES = new Set(["T1", "T2", "T3", "T4", "T6"]);
-
-export interface TransitionRequest {
-  orderId: string;
-  toStatus: OrderStatus;
-  actorType: ActorType;
-  /** Null only for RESTAURANT_SIM / SYSTEM actions (the database enforces this too). */
-  actorUserId: string | null;
-  reason?: string | null;
-  expectedVersion?: number;
-}
-
-/**
- * The single referee for every status change (docs/ARCHITECTURE.md §6–7). Checks the move against the
- * state machine, then applies it with compare-and-set on the current status (and version, if the caller
- * sent one), so two conflicting changes can never both succeed. History, payment, and notification rows
- * are written in the same transaction.
- *
- * Callers decide the actor type from the caller's relationship to the order; this function trusts it.
- */
-export async function transitionOrder(
-  db: Database,
-  request: TransitionRequest,
-  gateway: PaymentGateway = getPaymentGateway(),
-): Promise<void> {
-  const voidedReferences = await db.transaction(async (tx) => {
-    const [current] = await tx
-      .select({
-        id: orders.id,
-        status: orders.status,
-        version: orders.version,
-        customerId: orders.customerId,
-        orderNumber: orders.orderNumber,
-        restaurantName: orders.restaurantNameSnapshot,
-      })
-      .from(orders)
-      .where(eq(orders.id, request.orderId));
-    if (!current) throw NOT_FOUND();
-
-    const decision = checkTransition(current.status, request.toStatus, request.actorType, request.reason);
-    if (!decision.allowed) {
-      throw decision.code === "REASON_REQUIRED"
-        ? new AppError("REASON_REQUIRED", "Give a reason for this change.")
-        : new AppError("INVALID_TRANSITION", transitionRefusal(current.status, request.toStatus), {
-            currentStatus: current.status,
-          });
-    }
-    if (!SUPPORTED_RULES.has(decision.rule.id)) {
-      throw new Error(`Transition ${decision.rule.id} needs courier assignment support (Phase 5).`);
-    }
-    if (request.expectedVersion !== undefined && request.expectedVersion !== current.version) {
-      throw staleState(current.status);
-    }
-
-    // Compare-and-set: succeeds only if nobody changed the order since it was read above.
-    const updated = await tx
-      .update(orders)
-      .set({
-        status: request.toStatus,
-        statusUpdatedAt: sql`now()`,
-        version: sql`${orders.version} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(orders.id, current.id),
-          eq(orders.status, current.status),
-          eq(orders.version, current.version),
-        ),
-      )
-      .returning({ id: orders.id });
-    if (updated.length === 0) throw staleState(current.status);
-
-    await tx.insert(orderStatusEvents).values({
-      orderId: current.id,
-      fromStatus: current.status,
-      toStatus: request.toStatus,
-      actorType: request.actorType,
-      actorUserId: request.actorUserId,
-      reason: request.reason?.trim() || null,
-    });
-
-    const voided =
-      request.toStatus === "CANCELLED"
-        ? await tx
-            .update(payments)
-            .set({ status: "VOIDED", updatedAt: new Date() })
-            .where(and(eq(payments.orderId, current.id), eq(payments.status, "AUTHORIZED")))
-            .returning({ reference: payments.providerReference })
-        : [];
-
-    const notice = NOTIFY_CUSTOMER[request.toStatus];
-    if (notice) {
-      await notifyOrder(tx, notice, {
-        userId: current.customerId,
-        orderId: current.id,
-        orderNumber: current.orderNumber,
-        restaurantName: current.restaurantName,
-      });
-    }
-    return voided.map((v) => v.reference);
-  });
-
-  // Tell the processor only after the change has committed, so a rolled-back cancel never voids a payment.
-  // (The demo gateway can't fail; a real one would need a retry queue here.)
-  for (const reference of voidedReferences) await gateway.void(reference);
-}
-
-function staleState(status: OrderStatus): AppError {
-  return new AppError("STALE_STATE", "This order just changed. Refresh to see its latest status.", {
-    currentStatus: status,
-  });
-}
-
-function transitionRefusal(from: OrderStatus, to: OrderStatus): string {
-  if (to === "CANCELLED" && from !== "PLACED") {
-    return "The restaurant has already started on this order, so it can't be cancelled here.";
-  }
-  if (TERMINAL_STATUSES.includes(from)) return "This order is already finished.";
-  return "That change isn't possible for this order right now.";
-}
-
-/**
- * POST /api/v1/orders/{orderId}/transitions. In Phase 4 the only caller relationship is the order's
- * customer, so the only possible move is cancelling a PLACED order (T2). Anyone else gets 404.
- */
-export async function customerTransition(
+export async function orderTransition(
   actor: Actor,
   orderId: string,
   input: TransitionInput,
+  requestId?: string,
   db: Database = getDb(),
-): Promise<OrderDetailView> {
-  const [owned] = await db
-    .select({ id: orders.id })
+): Promise<OrderDetailView | CourierOrderView | KitchenOrderView> {
+  if (input.actingAs === "RESTAURANT_SIM") {
+    if (actor.role !== "ADMIN") throw new AppError("FORBIDDEN", "Only admins can act for a restaurant.");
+    await transitionOrder(db, {
+      orderId,
+      toStatus: input.toStatus,
+      actorType: "RESTAURANT_SIM",
+      actorUserId: actor.userId,
+      reason: input.reason,
+      expectedVersion: input.expectedVersion,
+      audit: { actor, requestId },
+    });
+    const view = await loadKitchenOrder(db, orderId);
+    if (!view) throw NOT_FOUND();
+    return view;
+  }
+
+  const [order] = await db
+    .select({ customerId: orders.customerId })
     .from(orders)
-    .where(and(eq(orders.id, orderId), eq(orders.customerId, actor.userId)));
-  if (!owned) throw NOT_FOUND();
+    .where(eq(orders.id, orderId));
+  if (!order) throw NOT_FOUND();
 
-  await transitionOrder(db, {
-    orderId,
-    toStatus: input.toStatus,
-    actorType: "CUSTOMER",
-    actorUserId: actor.userId,
-    reason: input.reason,
-    expectedVersion: input.expectedVersion,
-  });
-  return getOrder(actor, orderId, db);
+  // A courier trying to accept their own order is told so (CANNOT_ACCEPT_OWN_ORDER), not treated as the customer.
+  const acceptingOffer = input.toStatus === "ASSIGNED" && actor.courier !== null;
+  if (order.customerId === actor.userId && !acceptingOffer) {
+    await transitionOrder(db, {
+      orderId,
+      toStatus: input.toStatus,
+      actorType: "CUSTOMER",
+      actorUserId: actor.userId,
+      reason: input.reason,
+      expectedVersion: input.expectedVersion,
+    });
+    return getOrder(actor, orderId, db);
+  }
+
+  if (actor.courier) {
+    if (actor.courier.status !== "APPROVED") {
+      throw new AppError("COURIER_NOT_APPROVED", "This needs an approved courier account.");
+    }
+    await transitionOrder(db, {
+      orderId,
+      toStatus: input.toStatus,
+      actorType: "COURIER",
+      actorUserId: actor.userId,
+      courier: actor.courier,
+      reason: input.reason,
+      expectedVersion: input.expectedVersion,
+    });
+    const view = await loadCourierOrder(db, orderId, actor.courier.id);
+    if (!view) throw NOT_FOUND();
+    return view;
+  }
+
+  throw NOT_FOUND();
 }
-
-/** Exposed for tests and docs: the rule IDs this phase can apply. */
-export const SUPPORTED_TRANSITIONS = TRANSITIONS.filter((t) => SUPPORTED_RULES.has(t.id));
