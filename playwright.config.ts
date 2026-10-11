@@ -21,6 +21,10 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
+  // One worker in CI. The suite signs in about 40 times, all from 127.0.0.1, and the app allows 30 sign-ins
+  // per IP per minute (a real protection we don't loosen for tests). On a fast CI runner with several
+  // workers the whole suite finished in under a minute and tripped it; one worker spreads them out.
+  workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL: BASE_URL,

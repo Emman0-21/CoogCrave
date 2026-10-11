@@ -1,7 +1,34 @@
 # CoogCrave — Progress
 
-**Current phase:** 6b — Notifications, reviews, menu editing · **Status:** `IN REVIEW` (awaiting Phase 6b checkpoint approval)
-**Branch:** `feature/notifications-reviews` (6 commits on top of `main` at `2ec55be`) · **Last updated:** 2026-10-11
+**Current phase:** 7 — UI refinement (short pass) · **Status:** `IN REVIEW`
+**Branch:** `feature/polish` (1 commit on top of `main` at `a2a4ef3`) · **Last updated:** 2026-10-11
+
+---
+
+## Phase 7 report (short pass, at your request because of the deadline)
+
+### 1. What was implemented
+- **Phone header:** logo and account on the first row, page links on a second row that never wraps unpredictably (it scrolls sideways if it ever has to). Desktop unchanged.
+- **Automated accessibility checks (axe, WCAG 2.1 A/AA):** 5 public pages at phone and desktop widths, and 14 signed-in pages (customer, courier, admin) each at 390 px and 1280 px. **No violations.**
+- E2E made robust against the per-account sign-in limit (10 per 15 minutes): the signed-in accessibility check runs once and covers both widths; the T-01 test uses the demo courier instead of the demo admin.
+
+### 2. Files changed
+`src/components/layout/site-header.tsx`, `tests/e2e/{accessibility,ordering}.spec.ts`, `package.json` and lockfile (`@axe-core/playwright`, dev only), docs.
+
+### 3. Commands executed (working tree at the commit, 2026-10-11)
+| Command | Result |
+|---|---|
+| `pnpm verify` | ✅ exit 0; 38 files, **474/474** tests; coverage 96.3% statements, 89.9% branches |
+| `pnpm test:e2e` (`CI=1`) | ✅ **35 passed**, 1 skipped by design (the signed-in accessibility test runs only in the desktop project and checks both widths itself) |
+| `pnpm audit --audit-level=high` | ✅ pass |
+
+Not re-run from a clean clone this time (deadline). The change is small and the full suites above passed.
+
+### 4. Not done from the original Phase 7 plan (skipped for time)
+Skeleton/loading states pass, CSP nonce tightening review, `EXPLAIN` query review, bundle analysis, PWA manifest, manual screen-reader pass.
+
+### 5. Phase 8 (deployment) needs your decisions
+Hosting, a managed Postgres, and an email provider all mean creating accounts and possibly paying, which I can't do without your approval. The app runs locally today (README).
 
 ---
 

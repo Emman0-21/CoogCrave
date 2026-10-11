@@ -88,7 +88,7 @@ Effort is a rough range of focused hours for one developer working with Claude; 
 **Exit criteria:** J3 and the full J4 demo E2E pass; draft `DEMO_GUIDE.md`.
 **Split (decided at the start of Phase 6):**
 - **6a** — courier decisions, users and suspension, admin order list and record, problem fixes (T2, T4, T6, T7, T9, T11 as ADMIN), activity log, dashboard, demo reset. **Status:** `DONE` (PR #6, merged). Exit: J3 core E2E (approve, cancel from the record, suspend). Demo auto-advance moved to 6b with the rest of the demo tooling.
-- **6b** — notifications inbox and unread badge, reviews, restaurant and menu editing (essentials: accepting orders, sold out, prices), demo auto-advance, full J4, `DEMO_GUIDE.md`. **Status:** `IN REVIEW` on `feature/notifications-reviews`. All tasks done.
+- **6b** — notifications inbox and unread badge, reviews, restaurant and menu editing (essentials: accepting orders, sold out, prices), demo auto-advance, full J4, `DEMO_GUIDE.md`. **Status:** `DONE` (PR #7, merged).
 
 ### Phase 7 — UI refinement & reliability
 **Tasks:** consistent visual pass; skeleton/empty/error states everywhere; responsive check at 360/768/1280 px; keyboard + screen-reader pass; axe checks in Playwright; reduced motion; CSP tightened with nonces; query review (`EXPLAIN` on offers, history, admin lists); bundle analysis; PWA manifest.

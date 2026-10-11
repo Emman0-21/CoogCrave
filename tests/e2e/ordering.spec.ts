@@ -110,7 +110,8 @@ test.describe("ordering (PRD CAT, CART, ORD, TRK)", () => {
 
     await page.getByRole("button", { name: "Sign out" }).click();
     await page.goto("/sign-in");
-    await signInThroughForm(page, DEMO.admin, DEMO.password);
+    // Another student (the demo courier; each demo account has a sign-in budget the suites share).
+    await signInThroughForm(page, DEMO.courier, DEMO.password);
     await expect(page).toHaveURL(/\/profile$/);
     const response = await page.goto(orderUrl);
     expect(response?.status()).toBe(404);
