@@ -1,7 +1,76 @@
 # CoogCrave — Progress
 
-**Current phase:** 5 — Courier experience · **Status:** `IN REVIEW` (awaiting Phase 5 checkpoint approval)
-**Branch:** `feature/courier-delivery` (4 commits on top of `main` at `efe7655`) · **Last updated:** 2026-10-11
+**Current phase:** 6a — Admin operations · **Status:** `IN REVIEW` (awaiting Phase 6a checkpoint approval)
+**Branch:** `feature/admin-operations` (5 commits on top of `main` at `1d39e50`) · **Last updated:** 2026-10-11
+
+---
+
+## Phase 6a report
+
+Phase 6 was split in two at your request: **6a** (this report) and **6b** (notifications inbox, reviews, essential restaurant and menu editing, demo auto-advance).
+
+### 1. What was implemented
+
+| Task | Status | Notes |
+|---|---|---|
+| Courier decisions (ADM-2) | `COMPLETE` | Review queue, oldest first; approve or reject with a note; suspend and reinstate; the courier is notified; audited. Suspending mid-delivery is refused until the order is resolved |
+| Users and suspension (ADM-3, AUTH-7) | `COMPLETE` | Search, filters, paging; suspend with a reason signs the person out everywhere and takes them offline as a courier; admins can't suspend themselves or other admins |
+| Admin orders and record (ADM-6) | `COMPLETE` | Every order, filterable; full record with customer, who did what and why, couriers, simulated payment. Reviews join it in 6b |
+| Problem fixes (ADM-8) | `COMPLETE` | Cancel any open order, unassign before pickup, close a picked-up order as not delivered; reason required; customer and courier told; audited |
+| Activity log (ADM-9) | `COMPLETE` | Own page now, with reasons and links to each user, courier, or order |
+| Dashboard (ADM-1) | `COMPLETE` | Today's orders by stage, what needs attention, simulated sales |
+| Demo reset (ADM-10) | `COMPLETE` | Off by default; never in production; exact phrase; demo accounts' data only; refuses while a demo courier holds a real customer's order |
+| Demo auto-advance | `MOVED` → 6b | Goes with the rest of the demo tooling |
+
+### 2. Files changed
+
+55 files (29 added, 26 modified) since `main`.
+
+- **Domain:** `src/server/domain/admin-rules.ts` (new)
+- **Services:** `src/server/services/{admin-people,admin-orders,admin-ops}.ts` (new); `order-workflow.ts` (locked courier re-read on accept, courier told when an admin ends their delivery); `orders.ts` (admin projection, `ADMIN` transitions); `notifications.ts`; `src/server/seed/demo.ts` (profile restore reused by reset); `src/server/config.ts` (`DEMO_RESET_ENABLED`); `src/server/http/{errors,limits}.ts`
+- **API:** `src/app/api/v1/admin/{metrics,users,users/[userId],couriers,couriers/[courierId]/decision,orders,demo/reset}/route.ts`
+- **Shared:** `src/shared/schemas/admin.ts` (new), `ordering.ts`
+- **UI:** admin layout and navigation; pages `/admin` (dashboard), `/admin/couriers`, `/admin/users`, `/admin/orders`, `/admin/orders/[orderId]`, `/admin/activity`; Kitchen Console moved into the admin frame; components `src/components/features/admin/`
+- **Tests:** `unit/{domain-admin-rules,config}`, `integration/{admin,demo-reset}`, role matrix extended, `component/admin-ui`, `e2e/admin.spec.ts`, E2E setup and activity-log test updated
+- **Docs:** API spec (§2, §7, §10), architecture (§4, §6, §7.1, §16), threat model, testing, plan, PRD notes, README, review log, `.env.example`, this report
+
+### 3. Commands executed (clean clone of `feature/admin-operations` at `e1d6119`, fresh `coogcrave_dev` and `coogcrave_test` databases, 2026-10-11)
+
+| Command | Result |
+|---|---|
+| `pnpm install --frozen-lockfile` | ✅ exit 0 |
+| `pnpm verify` (tracked-env, format, lint, typecheck, drift, coverage, build) | ✅ exit 0 |
+| ↳ `pnpm test:coverage` | ✅ 33 files, **434/434 tests passed**. Coverage 96.4% statements, 89.6% branches, 97.5% functions, 98.2% lines. Domain 98.5% / 97.9% branches / 100% functions; services 94.6% / 86.7% branches |
+| `pnpm db:migrate`, `pnpm db:seed`, `pnpm db:seed:demo` | ✅ migrations applied; 14 buildings, 10 cuisines, 11 restaurants, 31 items; 4 demo accounts |
+| `pnpm test:e2e` (Chromium, `CI=1`) | ✅ **30/30 passed** (15 tests × mobile + desktop), no retries |
+| `pnpm audit --audit-level=high` | ✅ pass (same accepted dev-only exception; 1 moderate) |
+
+**Checkpoint** (exit criterion: J3 core): `e2e/admin.spec.ts` has a student apply, the admin approve them from the queue (they can then go online), a customer order and the admin cancel it from its record with a reason, and the admin suspend an account (signed out, sign-in refused) and lift it; each shows in the activity log.
+
+### 4. Tests by result
+
+- 434 Vitest tests passed, 0 failed, 0 skipped (41 more than Phase 5).
+- 30 E2E runs passed, 0 failed.
+- Race: suspension vs accept, 15 rounds per run: never both succeed, and both orderings occurred.
+- Mutation checks: removing the locked courier re-read lets suspension and accept both succeed (test fails); removing the demo-reset busy-courier guard (test fails).
+
+### 5. Engineering risks remaining
+
+- **The session limit interrupted this phase once.** Nothing was lost (work was on disk), and every check above was re-run from scratch afterwards, but the gap means the code from before the interruption was reviewed again rather than as it was written.
+- **No notifications inbox yet** (6b). Couriers and customers are notified (rows are written), but can't read them in the app until then.
+- **Restaurants and menus** still come only from the seed (6b, essentials only).
+- **Admin lists** return up to 200 couriers and paged users/orders; fine for a campus, revisit at scale.
+- Demo reset is a destructive tool; it's off unless `.env` turns it on, and never in production.
+
+### 6. Ready for review?
+
+**Yes.** Every 6a task is done and the J3 core journey passes on phone and desktop from a clean clone with fresh databases.
+
+### 7. What should happen next
+
+1. Review the branch, mainly `src/server/services/admin-people.ts` (suspension and decisions with locking), `admin-ops.ts` (demo reset), and the new rows in `ARCHITECTURE.md` §16.
+2. Push `feature/admin-operations` and open a PR to `main` so CI runs.
+3. On approval and merge: Phase 6b on `feature/notifications-reviews`.
 
 ---
 
