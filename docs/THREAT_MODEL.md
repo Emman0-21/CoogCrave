@@ -1,6 +1,6 @@
 # CoogCrave — Threat Model
 
-> **Status:** Approved at Phase 1; control status updated after Phase 4 (§5) · **Last updated:** 2026-10-11
+> **Status:** Approved at Phase 1; control status updated after Phase 5 (§5) · **Last updated:** 2026-10-11
 > Method: assets → actors → trust boundaries → threats (STRIDE) with a mitigation **and a way to verify it**. A control without a verification is listed as unverified, not as done. Re-reviewed at the end of every phase (`CODE_REVIEW_LOG.md`).
 
 ---
@@ -54,7 +54,7 @@ Verification types: **U** unit test · **I** integration test (real DB) · **E**
 | T-03 | Elevation | Customer calls courier or admin endpoints directly | Route auth level + service policy re-check | I: role × endpoint matrix (401/403/404 as specified) | 3–6 |
 | T-04 | Spoofing | Customer advances their own order to `CONFIRMED`/`READY_FOR_PICKUP` (impersonating the restaurant) | Transition table allows those moves only for `RESTAURANT_SIM`; `actingAs` accepted only from admins | U: exhaustive transition × actor table · I: customer attempts → `409`/`403` | 4–5 |
 | T-05 | Info disclosure | Courier harvests customer names/instructions from offers | Offer projection excludes PII; full details only for the assigned courier, time-boxed to 24 h after the assignment ends | I: response-shape assertions on offers and on non-assigned courier `GET /orders/{id}` | 5 |
-| T-06 | Elevation | Courier accepts their own order (self-dealing) | `customer_id <> courier user` in the CAS `WHERE`; policy check | I | 5 |
+| T-06 | Elevation | Courier accepts their own order (self-dealing) | Pure `acceptRefusal` policy checked inside the accept transaction (`CANNOT_ACCEPT_OWN_ORDER`); own orders never appear as offers or can be declined | I | 5 |
 | T-07 | Elevation | Suspended user keeps acting via an existing session | Every request re-reads `suspended_at` (session cookie cache off); sign-in refused for suspended accounts (session-create hook); suspension also deletes sessions (admin endpoint, Phase 6) | I: suspended identity with a valid cookie denied on every endpoint | 3, 6 |
 
 ### Integrity and business logic
@@ -111,6 +111,17 @@ Verification types: **U** unit test · **I** integration test (real DB) · **E**
 
 Status moves from **Designed** → **Implemented** (code exists) → **Verified** (its listed test or check passes). Nothing is called Verified on the strength of a library being installed.
 
+### After Phase 5
+
+| ID | Status | Evidence |
+|---|---|---|
+| T-01 IDOR | **Verified** for customers and couriers | Couriers who only saw an order as an offer, other couriers, and the courier 24 h after the delivery ended all get 404 (`delivery.test.ts`). |
+| T-04 Impersonating the restaurant | **Verified** | Non-admins sending `actingAs` → 403; admins acting as the restaurant can only make restaurant moves (e.g. `DELIVERED` → 409); every kitchen action audited with the admin's name. |
+| T-05 Courier data harvesting | **Verified** | Offer responses have exactly 8 fields and no name, note, email, or prices (asserted); the assigned courier sees "Alex R." (or a chosen display name) and the note only while active; mutation: removing the note gating fails the test. E2E checks the offer row shows neither name nor note. |
+| T-06 Self-dealing | **Verified** | Own orders aren't offered, can't be declined (404), and accepting → 422 `CANNOT_ACCEPT_OWN_ORDER`. |
+| T-09 Double accept | **Verified** | 6 couriers race for one order, 20 rounds per run, 20 consecutive runs (2 400 accepts): always exactly one `200` and one active assignment. A courier double-tapping two offers: always one success and `COURIER_HAS_ACTIVE_DELIVERY`. Mutation: with both compare-and-set guards removed, the partial unique index still keeps one winner (defense in depth works); removing its error translation too turns losers into 500s, which the test catches. |
+| T-12 Audit | **Verified** for kitchen actions | `order.kitchen_confirmed` / `…_ready_for_pickup` / `…_cancelled` rows with the admin as actor. |
+
 ### After Phase 4
 
 | ID | Status | Evidence |
@@ -166,9 +177,9 @@ Status moves from **Designed** → **Implemented** (code exists) → **Verified*
 
 ### OWASP checklist from the master prompt
 
-| Prompt checklist item | Threat IDs | Status after Phase 4 |
+| Prompt checklist item | Threat IDs | Status after Phase 5 |
 |---|---|---|
-| Broken access control | T-01 – T-07, T-12 | T-01 (customers), T-02, T-03 (all endpoints so far), T-04, T-07 (request-time), T-12 verified; T-05, T-06 arrive with delivery (Phase 5) |
+| Broken access control | T-01 – T-07, T-12 | T-01 (customers, couriers), T-02 – T-06, T-07 (request-time), T-12 verified; admin projections Phase 6 |
 | Injection | T-22 | Verified (lint + review of Phase 3 queries) |
 | Cross-site scripting | T-21 | Verified at header/lint level; new forms render user text only through React |
 | CSRF | T-20 | Verified, including login CSRF |

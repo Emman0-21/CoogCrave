@@ -100,6 +100,28 @@ describe("courier dashboard", () => {
     expect(await screen.findByText(/Nothing ready right now/)).toBeInTheDocument();
   });
 
+  it("keeps a skipped offer and says why when skipping fails", async () => {
+    const user = userEvent.setup();
+    render(<CourierDashboard isOnline active={null} offers={[offer]} timeZone="America/Chicago" />);
+    respond(503, { error: { code: "SERVICE_UNAVAILABLE", message: "Try again in a moment." } });
+    await user.click(screen.getByRole("button", { name: "Skip delivery from The Burger Joint" }));
+    expect(await screen.findByText("Try again in a moment.")).toBeInTheDocument();
+    expect(screen.getByRole("listitem")).toHaveTextContent("The Burger Joint");
+  });
+
+  it("reloads the page when polling finds the courier went offline elsewhere", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<CourierDashboard isOnline active={null} offers={[offer]} timeZone="America/Chicago" />);
+      respond(403, { error: { code: "COURIER_OFFLINE", message: "Go online to see deliveries." } });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(call(0).url).toBe("/api/v1/courier/offers");
+      await vi.waitFor(() => expect(router.refresh).toHaveBeenCalled());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows the current delivery with only the allowed moves, and asks for a reason to give it back", async () => {
     const user = userEvent.setup();
     render(<CourierDashboard isOnline active={active} offers={[]} timeZone="America/Chicago" />);

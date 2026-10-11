@@ -107,6 +107,13 @@ describe("courier delivery (PRD DLV-1…11)", () => {
       expect(online.status).toBe(403);
       expect(await codeOf(online)).toBe("COURIER_NOT_APPROVED");
       expect((await offers(student)).status).toBe(403);
+
+      // Accepting says why; any other move on someone else's order is a plain 404 (T-01).
+      const orderId = await readyOrder(await signedInUser(uniqueEmail("pending-customer")));
+      const accept = await transition(student, orderId, { toStatus: "ASSIGNED" });
+      expect(accept.status).toBe(403);
+      expect(await codeOf(accept)).toBe("COURIER_NOT_APPROVED");
+      expect((await transition(student, orderId, { toStatus: "PICKED_UP" })).status).toBe(404);
     });
 
     it("lets a rejected applicant apply again", async () => {

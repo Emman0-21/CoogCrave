@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { requestJson } from "@/client/api";
 import { Button } from "@/components/ui/button";
@@ -14,8 +14,11 @@ const POLL_MS = 10_000;
 
 type Message = { tone: "error" | "success" | "info"; text: string } | null;
 
+/** Errors meaning the courier's own state changed (e.g. went offline in another tab): reload the page. */
+const COURIER_STATE_CHANGED = new Set(["COURIER_OFFLINE", "COURIER_NOT_APPROVED"]);
+
 /** Offers, refreshed every 10 seconds while the tab is visible (ARCHITECTURE §11). */
-function OfferList({ initial, onAccepted }: { initial: OfferView[]; onAccepted: () => void }) {
+function OfferList({ initial, onRefresh }: { initial: OfferView[]; onRefresh: () => void }) {
   const [offers, setOffers] = useState(initial);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<Message>(null);
@@ -30,14 +33,17 @@ function OfferList({ initial, onAccepted }: { initial: OfferView[]; onAccepted: 
     const timer = setInterval(() => {
       if (document.visibilityState !== "visible") return;
       void requestJson<{ data: OfferView[] }>("/api/v1/courier/offers").then((result) => {
-        if (current && result.ok) setOffers(result.data.data);
+        if (!current) return;
+        if (result.ok) setOffers(result.data.data);
+        else if (COURIER_STATE_CHANGED.has(result.error.code)) onRefresh();
+        // Other failures (network blips) are retried by the next poll; the list on screen stays.
       });
     }, POLL_MS);
     return () => {
       current = false;
       clearInterval(timer);
     };
-  }, []);
+  }, [onRefresh]);
 
   async function accept(offer: OfferView) {
     setBusy(offer.orderId);
@@ -46,9 +52,9 @@ function OfferList({ initial, onAccepted }: { initial: OfferView[]; onAccepted: 
       body: { toStatus: "ASSIGNED" },
     });
     setBusy(null);
-    if (result.ok) {
-      onAccepted();
-      return;
+    if (result.ok || COURIER_STATE_CHANGED.has(result.error.code)) {
+      onRefresh();
+      if (result.ok) return;
     }
     setMessage({ tone: "error", text: result.error.message });
     await reload();
@@ -56,9 +62,18 @@ function OfferList({ initial, onAccepted }: { initial: OfferView[]; onAccepted: 
 
   async function decline(offer: OfferView) {
     setBusy(offer.orderId);
-    await requestJson(`/api/v1/courier/offers/${offer.orderId}/decline`, { method: "POST", body: {} });
+    setMessage(null);
+    const result = await requestJson(`/api/v1/courier/offers/${offer.orderId}/decline`, {
+      method: "POST",
+      body: {},
+    });
     setBusy(null);
-    setOffers((list) => list.filter((o) => o.orderId !== offer.orderId));
+    // 404 means it's no longer an offer (someone took it), so it leaves the list either way.
+    if (result.ok || result.error.code === "NOT_FOUND") {
+      setOffers((list) => list.filter((o) => o.orderId !== offer.orderId));
+    } else {
+      setMessage({ tone: "error", text: result.error.message });
+    }
   }
 
   return (
@@ -153,6 +168,8 @@ function ActiveDelivery({
       onChanged();
     } else {
       setMessage({ tone: "error", text: result.error.message });
+      // Someone else (an admin) changed the order: show its current state.
+      if (result.error.code === "STALE_STATE" || result.error.code === "NOT_FOUND") onChanged();
     }
   }
 
@@ -291,6 +308,7 @@ export function CourierDashboard({
   timeZone: string;
 }) {
   const router = useRouter();
+  const refresh = useCallback(() => router.refresh(), [router]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -332,9 +350,9 @@ export function CourierDashboard({
       )}
 
       {active ? (
-        <ActiveDelivery delivery={active} timeZone={timeZone} onChanged={() => router.refresh()} />
+        <ActiveDelivery delivery={active} timeZone={timeZone} onChanged={refresh} />
       ) : isOnline ? (
-        <OfferList initial={offers} onAccepted={() => router.refresh()} />
+        <OfferList initial={offers} onRefresh={refresh} />
       ) : (
         <p className="mt-8 text-ink-muted">Go online to see deliveries that are ready for pickup.</p>
       )}

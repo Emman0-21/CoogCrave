@@ -402,6 +402,8 @@ export async function orderTransition(
 
   if (actor.courier) {
     if (actor.courier.status !== "APPROVED") {
+      // Accepting gets a clear answer; anything else on someone else's order stays a 404 (T-01).
+      if (!acceptingOffer) throw NOT_FOUND();
       throw new AppError("COURIER_NOT_APPROVED", "This needs an approved courier account.");
     }
     await transitionOrder(db, {

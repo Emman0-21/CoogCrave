@@ -1,6 +1,6 @@
 # CoogCrave — Testing
 
-> **Last updated:** 2026-10-11 (Phase 4). Describes what exists now; each phase adds to it.
+> **Last updated:** 2026-10-11 (Phase 5). Describes what exists now; each phase adds to it.
 
 ## 1. Test layers
 
@@ -22,10 +22,11 @@ Most of CoogCrave's correctness guarantees live in Postgres: CHECK constraints o
 - `tests/integration/global-setup.ts` applies committed migrations once per run, as the migrator role.
 - `tests/support/integration-env.ts` points the app's `DATABASE_URL` at the test database **as the app role**, so every test exercises production grants.
 - `tests/support/db.ts` provides `openPool(role)` for direct assertions and `resetDatabase()` (truncates all tables as the migrator).
+- `tests/support/delivery.ts` has delivery helpers: `courierAccount()` (a signed-in student with a courier profile in any state and a distinct name), `readyOrder()` (placed and moved to ready by the simulated restaurant), `transition()`, `viewOrder()`.
 - `tests/support/ordering.ts` has ordering helpers: seeded IDs, `openAllWeek`/`closeAllWeek` (tests never depend on the clock), `clearOrdering` (empties carts, orders, and rate-limit counters between tests), `checkout()`.
 - `tests/support/http.ts` drives the real route handlers: `appRequest()` builds same-origin requests, `CookieJar` carries the session cookie between calls, and `mailTo()`/`linkIn()` read the outbox. `tests/support/auth.ts` builds on them (`signUp`, `signIn`, `registerVerified`, `signedInUser`). `tests/support/fixtures.ts` inserts campus, location, restaurant, and courier rows directly.
 - Better Auth runs for real (not mocked) with its origin checks pinned on, so tests see production behavior.
-- Files run one at a time (`fileParallelism: false`) because they share one database. Tests inside a file may run concurrent requests (the courier race test in Phase 5 depends on this).
+- Files run one at a time (`fileParallelism: false`) because they share one database. Tests inside a file may run concurrent requests (the courier race tests depend on this).
 - **Guardrail:** the harness refuses any database whose name doesn't end in `_test`, so a misconfigured `.env` can't wipe development data.
 
 ## 3. Coverage
@@ -40,7 +41,27 @@ Most of CoogCrave's correctness guarantees live in Postgres: CHECK constraints o
 | `src/server/services/**` | 90% | 80% | 90% | 90% |
 - Coverage is a floor, not proof. Every state transition, authorization boundary, and user journey also gets an explicit test, whatever the percentage says.
 
-## 4. What the Phase 4 tests cover
+## 4. What the Phase 5 tests cover
+
+| Control | Test file | Requirement / threat |
+|---|---|---|
+| Payout = delivery fee + whole tip; accept policy and the order its refusals are reported in; "Alex R." / display name, never a full name; instructions only while active, order visible 24 h after the end | `unit/domain-delivery.test.ts` | PRD §6 · T-05, T-06 |
+| Application is always `PENDING`, can't self-approve, duplicate → 409, rejected may reapply; pending applicants can't go online, see offers, or accept (403), and get 404 for any other move | `integration/delivery.test.ts` | DLV-1, DLV-2 · T-03 |
+| Availability toggle keeps "online since"; offers have exactly 8 fields (no name, note, email, prices); own and not-ready orders never offered; decline is per-courier and idempotent | `integration/delivery.test.ts` | DLV-2…4 · T-05, T-06 |
+| Accept: assignment, courier projection, customer notified and sees the courier's first name; display name honored; offline, own order (422) and second delivery (409) refused | `integration/delivery.test.ts` | DLV-5…7, TRK-1 · T-06 |
+| **Race:** 6 couriers accept one order at once, 20 rounds: exactly one winner and one active assignment. **Double tap:** one courier accepts two offers at once, 20 rounds: exactly one succeeds | `integration/delivery.test.ts` | DLV-5, DLV-6 · T-09 |
+| Pickup → delivered: payout recorded, demo payment captured, note hidden afterwards; release before pickup needs a reason and returns the order to others (not the releaser); failed delivery voids the payment and pays nothing | `integration/delivery.test.ts` | DLV-8…10 · T-04 |
+| Other couriers get 404; the courier gets 404 24 h after the end | `integration/delivery.test.ts` | T-01, T-05 |
+| Kitchen Console: confirm and mark ready as `RESTAURANT_SIM` with an audit row naming the admin; reject needs a reason; non-admins get 403; restaurant can't mark delivered (409) | `integration/delivery.test.ts` | ADM-7 · T-04, T-12 |
+| Role matrix extended to all 9 new endpoints (`courierOnly` helper: user, pending courier, rejected courier → 403; approved → allowed) | `integration/role-access.test.ts` | T-03 |
+| Offers (simulated payout, accept, "someone was faster" → reload, skip, skip failure keeps the offer and explains, going offline elsewhere reloads the page), current delivery (only allowed moves, reason before giving it back), go online, application form, Kitchen Console (confirm sends the shown version, reject needs a reason) | `component/delivery-ui.test.tsx` | DLV-2…9, ADM-7 |
+| **Journey J2/J4** (desktop): customer orders, admin confirms and marks ready in the Kitchen Console, courier goes online, sees the offer without the customer's name or note, accepts, sees the note, picks up, delivers; customer sees the courier's first name and "Delivered"; earnings show the payout. Second test: a student applies and can't open courier-only pages | `e2e/delivery.spec.ts` | Phase 5 exit criterion · T-05 |
+
+Mutation checks in Phase 5 (each broken on purpose, test failed, code restored): "only the assigned courier" check removed; instruction gating removed; both compare-and-set guards **and** the unique-index translation removed (losers get 500s; with only the guards removed the index still holds and the test passes, which is the designed defense in depth); 404 for an unapproved courier's non-accept moves removed; skip-failure and offline-elsewhere handling removed from the offer list.
+
+**Flakiness check (exit criterion):** the two concurrency tests were run 20 times in a row (each run is itself 20 rounds): 20/20 green.
+
+## 4a. What the Phase 4 tests cover
 
 | Control | Test file | Requirement / threat |
 |---|---|---|
