@@ -117,9 +117,9 @@ test.describe("role isolation in the browser", () => {
   });
 
   test("admins see the activity log", async ({ page }) => {
-    await page.goto("/sign-in?next=%2Fadmin");
+    await page.goto("/sign-in?next=%2Fadmin%2Factivity");
     await signInThroughForm(page, DEMO.admin, DEMO.password);
-    await expect(page).toHaveURL(/\/admin$/);
+    await expect(page).toHaveURL(/\/admin\/activity$/);
     await expect(page.getByRole("heading", { name: "Activity log" })).toBeVisible();
     await expect(page.getByRole("table", { name: "Administrative actions, newest first" })).toBeVisible();
   });

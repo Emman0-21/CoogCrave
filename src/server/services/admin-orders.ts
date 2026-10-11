@@ -202,3 +202,8 @@ export async function loadAdminOrder(db: DbExecutor, orderId: string): Promise<A
     })),
   };
 }
+
+/** For the admin order page: the admin projection, or null if there's no such order. */
+export function getAdminOrder(orderId: string, db: Database = getDb()): Promise<AdminOrderView | null> {
+  return loadAdminOrder(db, orderId);
+}

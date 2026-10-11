@@ -6,6 +6,7 @@ import { Pool } from "pg";
  *  - clears rate-limit counters, so repeated local runs don't trip the sign-up/sign-in limits
  *  - checks that the demo accounts exist (they come from `pnpm db:seed && pnpm db:seed:demo`)
  *  - opens The Burger Joint around the clock, so the ordering journey doesn't depend on the time of day
+ *  - removes earlier runs' orders and closes their courier applications (e2e.* accounts only)
  */
 export default async function globalSetup(): Promise<void> {
   loadEnv({ path: [".env.local", ".env"], quiet: true });
@@ -30,6 +31,11 @@ export default async function globalSetup(): Promise<void> {
     // payment with it. Demo and personal accounts are never touched.
     await pool.query(
       `delete from orders where customer_id in (select id from users where email like 'e2e.%@cougarnet.uh.edu')`,
+    );
+    // Applications from earlier runs would pile up in the admin review queue; close them as not approved.
+    await pool.query(
+      `update courier_profiles set status = 'REJECTED', is_online = false, online_since = null
+       where status = 'PENDING' and user_id in (select id from users where email like 'e2e.%@cougarnet.uh.edu')`,
     );
     // The ordering journey needs a restaurant that's open whatever time the suite runs. Open The Burger
     // Joint all week in this (development) database; `pnpm db:seed` puts its sample hours back.
