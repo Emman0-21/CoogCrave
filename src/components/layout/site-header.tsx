@@ -7,6 +7,7 @@ export interface HeaderUser {
   firstName: string;
   isAdmin: boolean;
   cartCount: number;
+  unreadCount: number;
 }
 
 const LINK = "underline-offset-4 hover:underline";
@@ -29,6 +30,21 @@ export function SiteHeader({ user }: { user: HeaderUser | null }) {
             </Link>
             <Link href="/courier" className={LINK}>
               Deliver
+            </Link>
+            <Link
+              href="/notifications"
+              aria-label={user.unreadCount ? `Inbox, ${user.unreadCount} unread` : "Inbox"}
+              className={`${LINK} inline-flex items-center gap-1.5`}
+            >
+              Inbox
+              {user.unreadCount > 0 && (
+                <span
+                  aria-hidden="true"
+                  className="min-w-6 rounded-full bg-action px-1.5 text-center text-sm leading-6 font-bold text-action-ink"
+                >
+                  {user.unreadCount > 99 ? "99+" : user.unreadCount}
+                </span>
+              )}
             </Link>
             <Link
               href="/cart"

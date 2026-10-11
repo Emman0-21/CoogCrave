@@ -37,6 +37,7 @@ import type {
 
 import { loadAdminOrder } from "./admin-orders";
 import { loadKitchenOrder } from "./kitchen";
+import { loadReview } from "./reviews";
 import { transitionOrder } from "./order-workflow";
 import { decodeCursor, encodeCursor, microsecondTimestamp } from "./pagination";
 
@@ -157,6 +158,7 @@ export async function loadCustomerOrder(
     })),
     payment: { mode: "DEMO", status: payment?.status ?? "AUTHORIZED" },
     courier: courier ? { firstName: firstNameOf(courier.name), transportMode: courier.transportMode } : null,
+    review: await loadReview(db, o.id),
     allowedTransitions: allowedTransitions(o.status, "CUSTOMER").map((toStatus) => ({
       toStatus,
       actingAs: null,
@@ -264,6 +266,7 @@ export async function loadCourierOrder(
     },
     payoutCents: a.payoutCents ?? payoutFor(o),
     payoutIsSimulated: true,
+    rating: (await loadReview(db, o.id))?.rating ?? null,
     allowedTransitions:
       a.endedAt === null
         ? allowedTransitions(o.status, "COURIER").map((toStatus) => ({

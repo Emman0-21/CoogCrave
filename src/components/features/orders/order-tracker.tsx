@@ -12,6 +12,7 @@ import { formatCents, formatTime } from "@/shared/format";
 import type { OrderDetailView } from "@/shared/schemas/ordering";
 
 import { TRANSPORT_LABEL } from "../courier/transport";
+import { ReviewPanel } from "./review-panel";
 import { HAPPY_PATH, STATUS_LABEL, STATUS_NEXT } from "./status-text";
 
 const POLL_MS = 5_000;
@@ -168,6 +169,15 @@ export function OrderTracker({ initial, timeZone }: { initial: OrderDetailView; 
               </Button>
             )}
           </div>
+        )}
+
+        {order.status === "DELIVERED" && (
+          <ReviewPanel
+            orderId={order.id}
+            courierFirstName={order.courier?.firstName ?? null}
+            review={order.review}
+            onReviewed={(review) => setOrder((current) => ({ ...current, review }))}
+          />
         )}
       </section>
 

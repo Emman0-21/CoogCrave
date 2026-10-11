@@ -11,6 +11,7 @@ import {
   type UserRole,
 } from "@/shared/enums";
 
+import type { ReviewView } from "./engagement";
 import { oneOrMany, requiredNote, optionalNote, type PriceView } from "./ordering";
 
 /**
@@ -163,6 +164,7 @@ export interface AdminOrderView {
     amountCents: number;
     reference: string;
   } | null;
+  review: ReviewView | null;
   /** Moves an admin can make here as ADMIN (all need a reason). Kitchen moves live in the Kitchen Console. */
   allowedTransitions: { toStatus: OrderStatus; reasonRequired: boolean }[];
 }

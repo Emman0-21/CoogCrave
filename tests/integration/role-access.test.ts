@@ -32,6 +32,9 @@ import { POST as transitionPost } from "@/app/api/v1/orders/[orderId]/transition
 import { GET as ordersGet, POST as ordersPost } from "@/app/api/v1/orders/route";
 import { GET as restaurantGet } from "@/app/api/v1/restaurants/[slug]/route";
 import { GET as restaurantsGet } from "@/app/api/v1/restaurants/route";
+import { POST as markReadPost } from "@/app/api/v1/notifications/mark-read/route";
+import { GET as notificationsGet } from "@/app/api/v1/notifications/route";
+import { POST as reviewPost } from "@/app/api/v1/orders/[orderId]/review/route";
 import * as schema from "@/server/db/schema";
 
 import { signedInUser } from "../support/auth";
@@ -283,6 +286,23 @@ describe("role-access matrix", () => {
       call: (jar: CookieJar) =>
         demoResetPost(appRequest("/api/v1/admin/demo/reset", { body: { confirm: "RESET DEMO DATA" }, jar })),
     },
+    {
+      name: "POST /api/v1/orders/{id}/review",
+      call: (jar: CookieJar) =>
+        reviewPost(
+          appRequest(`/api/v1/orders/${missingId}/review`, { body: { rating: 5 }, jar }),
+          ctx({ orderId: missingId }),
+        ),
+    },
+    {
+      name: "GET /api/v1/notifications",
+      call: (jar: CookieJar) => notificationsGet(appRequest("/api/v1/notifications", { jar })),
+    },
+    {
+      name: "POST /api/v1/notifications/mark-read",
+      call: (jar: CookieJar) =>
+        markReadPost(appRequest("/api/v1/notifications/mark-read", { body: { all: true }, jar })),
+    },
     // Last: it gives the student and admin a (pending) courier profile.
     {
       name: "POST /api/v1/courier/application",
@@ -350,6 +370,9 @@ describe("role-access matrix", () => {
     "POST /api/v1/orders": anyUser(422),
     "GET /api/v1/orders/{id}": anyUser(404),
     "POST /api/v1/orders/{id}/transitions": anyUser(404),
+    "POST /api/v1/orders/{id}/review": anyUser(404),
+    "GET /api/v1/notifications": anyUser(200),
+    "POST /api/v1/notifications/mark-read": anyUser(204),
     // Students and admins without a courier profile: 404 (nothing to show); the approved courier: 200.
     "GET /api/v1/courier/me": {
       anonymous: U,

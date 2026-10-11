@@ -57,6 +57,7 @@ const active: CourierOrderView = {
   assignment: { assignedAt: "2026-10-14T19:05:00.000Z", pickedUpAt: null, endedAt: null, endReason: null },
   payoutCents: 549,
   payoutIsSimulated: true,
+  rating: null,
   allowedTransitions: [
     { toStatus: "READY_FOR_PICKUP", reasonRequired: true },
     { toStatus: "PICKED_UP", reasonRequired: false },

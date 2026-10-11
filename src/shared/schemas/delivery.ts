@@ -67,6 +67,8 @@ export interface CourierOrderView {
   };
   payoutCents: number;
   payoutIsSimulated: true;
+  /** The customer's star rating, once given; couriers don't see the comment (API_SPEC §7.1). */
+  rating: number | null;
   allowedTransitions: { toStatus: OrderStatus; reasonRequired: boolean }[];
 }
 

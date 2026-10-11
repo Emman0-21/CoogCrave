@@ -30,3 +30,13 @@ export const DEMO_RESET_LIMIT: RouteRateLimit = {
   by: "user",
   rule: { name: "api.demo_reset.user", limit: 5, windowSeconds: 600 },
 };
+
+export const REVIEW_LIMIT: RouteRateLimit = {
+  by: "user",
+  rule: { name: "api.review.user", limit: 10, windowSeconds: 3600 },
+};
+
+export const NOTIFICATION_READ_LIMIT: RouteRateLimit = {
+  by: "user",
+  rule: { name: "api.notification_read.user", limit: 120, windowSeconds: 60 },
+};
