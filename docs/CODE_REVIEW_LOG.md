@@ -170,3 +170,21 @@ Each entry states whether it is an **automated self-review** (performed by Claud
 | 7 | Tests | The Phase 3 activity-log E2E pointed at `/admin`, which is now the dashboard | Low | Points at `/admin/activity` | E2E |
 
 **Not changed, recorded for review:** admin read endpoints (lists, metrics) have no limit beyond the default 300/min per IP, since only admins reach them; an admin's own order is handled as a customer's (`ARCHITECTURE.md` §16).
+
+---
+
+## 2026-10-11 · Phase 6b (notifications, reviews, menu editing, demo tooling) · Automated self-review
+
+**Scope:** all code on `feature/notifications-reviews`: notification and review services and routes, review data in all three order projections, admin catalog editing, demo auto-advance and its startup hook, inbox, rating, and menu editing UI, tests, `DEMO_GUIDE.md`, docs. Reviewed against `THREAT_MODEL.md` (T-01, T-03, T-05, T-12, T-13), with mutation checks, a production-build smoke test of auto-advance, and the full J4 journey in a real browser. **No human review has occurred yet.**
+
+| # | Area | Finding | Severity | Correction | Verification |
+|---|---|---|---|---|---|
+| 1 | Correctness | Notifications sent to a courier about an order (an admin took their delivery) would have linked to the customer's order page, which the courier gets a 404 for | Medium | The server picks each notification's link per reader (`href`) | Integration + unit tests |
+| 2 | Correctness | Auto-advance processed "placed → confirmed" before "confirmed → ready", so with a clock far enough ahead one pass could move an order two steps | Low | Later step first; a confirmed order always waits its full step | Integration test (one step per wait) |
+| 3 | Test gap | The "audit only real changes" rule for menu items wasn't covered: breaking it passed every test | Low | Test now makes a no-op change and expects no audit row | Mutation now fails the test |
+| 4 | Accessibility / usability | The star radios were visually hidden, clipped 1-pixel inputs, so pointer or touch exploration doesn't land on them, and the browser test couldn't select one the way a user would | Low | Real radios laid invisibly over each star | E2E selects by label; component tests |
+| 5 | UX | After saving a price the field could keep showing the typed text rather than the saved value | Low | The field follows the saved price when the page reloads its data | Component test |
+| 6 | Test robustness | A failed menu-editing E2E run would leave an item sold out and break the next run | Low | E2E setup puts the edited items and restaurants back | Code review |
+| 7 | Defense in depth (not a defect) | Removing the expected version from auto-advance passes the race test | — | Kept: the referee already refuses a move from a status the order no longer has; the version check is a second guard | Mutation run |
+
+**Not changed, recorded for review:** the unread badge refreshes on navigation, not live; opening hours can't be edited, so the demo must run during sample hours (`DEMO_GUIDE.md` §1); auto-advance runs in each server process (safe, but redundant work with several instances).

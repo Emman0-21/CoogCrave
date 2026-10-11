@@ -15,8 +15,8 @@ CoogCrave is a student-powered food delivery platform for the University of Hous
 | 3. Database, accounts, and access control | Complete (PR #2; real restaurant names in PR #3) |
 | 4. Customer ordering | Complete (PR #4) |
 | 5. Courier delivery | Complete (PR #5) |
-| 6a. Admin operations | **In review**: dashboard, courier approval, user suspension, every order's full record with problem fixes, activity log, demo reset |
-| 6b. Notifications, reviews, menu editing | Not started |
+| 6a. Admin operations | Complete (PR #6) |
+| 6b. Notifications, reviews, menu editing | **In review**: inbox with unread badge, delivery ratings, stop/start orders, sold-out items and prices, demo auto-advance for rehearsals, demo guide |
 | 7–8. Polish, release | Not started |
 
 A full order now runs end to end: a student orders, an admin plays the restaurant in the Kitchen Console, a student courier accepts and delivers it, and the customer tracks each step. Progress is tracked in [docs/PROGRESS.md](docs/PROGRESS.md).
@@ -58,7 +58,9 @@ pnpm dev                             # http://localhost:3000
 | `customer@demo.coogcrave.test` | Student |
 | `courier@demo.coogcrave.test` | Student with an approved courier profile |
 | `applicant@demo.coogcrave.test` | Student whose courier application is pending |
-| `admin@demo.coogcrave.test` | Admin (dashboard at `/admin`: couriers, users, orders, Kitchen Console, activity log) |
+| `admin@demo.coogcrave.test` | Admin (dashboard at `/admin`: orders, Kitchen Console, restaurants, couriers, users, activity log) |
+
+For a presenter's script, setup checklist, and troubleshooting, see [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md).
 
 **Try a whole delivery** with three browser windows (one normal, two private, so each keeps its own sign-in):
 
@@ -126,15 +128,15 @@ docs/               requirements, architecture, API, database, threat model, pla
 
 ## Documentation
 
-[Product requirements](docs/PRODUCT_REQUIREMENTS.md) · [Architecture](docs/ARCHITECTURE.md) · [Database design](docs/DATABASE_DESIGN.md) · [API spec](docs/API_SPEC.md) · [Threat model](docs/THREAT_MODEL.md) · [Development plan](docs/DEVELOPMENT_PLAN.md) · [Testing](docs/TESTING.md) · [Progress](docs/PROGRESS.md) · [Code review log](docs/CODE_REVIEW_LOG.md)
+[Product requirements](docs/PRODUCT_REQUIREMENTS.md) · [Architecture](docs/ARCHITECTURE.md) · [Database design](docs/DATABASE_DESIGN.md) · [API spec](docs/API_SPEC.md) · [Threat model](docs/THREAT_MODEL.md) · [Development plan](docs/DEVELOPMENT_PLAN.md) · [Testing](docs/TESTING.md) · [Progress](docs/PROGRESS.md) · [Code review log](docs/CODE_REVIEW_LOG.md) · [Demo guide](docs/DEMO_GUIDE.md)
 
 ## Known limitations (current)
 
 - Restaurant steps are played by an admin in the Kitchen Console; no real restaurant is connected. The seed data uses real UH restaurant names, but their menus, prices, and hours are invented samples; none of these venues takes part in or endorses CoogCrave.
 - Restaurants follow their sample hours in campus time, so some are closed depending on when you look.
 - Emails go to a local folder; no email provider is connected, and deployed environments refuse to start until one is (Phase 8).
-- Restaurants and menus can't be edited in the app yet (Phase 6b); they come from `pnpm db:seed`.
-- No notifications inbox or reviews yet (Phase 6b); notifications are already recorded with each status change and admin decision.
+- Admins can stop or start orders, mark items sold out, and change prices; everything else about restaurants and menus (including opening hours) comes from `pnpm db:seed`.
+- Notifications are in-app only (no email or push), and the unread badge updates when you change pages.
 - Demo reset (on the admin dashboard) only appears with `DEMO_RESET_ENABLED=true` in `.env`, and never in production.
 - On narrow phones the header wraps to two rows (Phase 7 visual pass).
 - No deployment target configured; the app runs locally and in CI only.
