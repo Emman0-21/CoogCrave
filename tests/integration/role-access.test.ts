@@ -5,12 +5,29 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GET as healthGet } from "@/app/api/health/route";
 import { GET as auditGet } from "@/app/api/v1/admin/audit-events/route";
 import { GET as locationsGet } from "@/app/api/v1/locations/route";
+import { DELETE as cartItemDelete, PATCH as cartItemPatch } from "@/app/api/v1/cart/items/[cartItemId]/route";
+import { POST as cartItemsPost } from "@/app/api/v1/cart/items/route";
+import { DELETE as cartDelete, GET as cartGet } from "@/app/api/v1/cart/route";
+import { POST as quotePost } from "@/app/api/v1/checkout/quote/route";
+import { GET as cuisinesGet } from "@/app/api/v1/cuisines/route";
 import { GET as meGet, PATCH as mePatch } from "@/app/api/v1/me/route";
+import { GET as orderGet } from "@/app/api/v1/orders/[orderId]/route";
+import { POST as transitionPost } from "@/app/api/v1/orders/[orderId]/transitions/route";
+import { GET as ordersGet, POST as ordersPost } from "@/app/api/v1/orders/route";
+import { GET as restaurantGet } from "@/app/api/v1/restaurants/[slug]/route";
+import { GET as restaurantsGet } from "@/app/api/v1/restaurants/route";
 import * as schema from "@/server/db/schema";
 
 import { signedInUser } from "../support/auth";
 import { openPool, resetDatabase } from "../support/db";
-import { createCampus, createCourier, createLocation, testDb, type TestDb } from "../support/fixtures";
+import {
+  createCampus,
+  createCourier,
+  createLocation,
+  createRestaurantWithItem,
+  testDb,
+  type TestDb,
+} from "../support/fixtures";
 import { appRequest, bodyOf, CookieJar, uniqueEmail } from "../support/http";
 
 type Identity = "anonymous" | "student" | "courier" | "admin" | "suspended" | "unverified";
@@ -24,13 +41,18 @@ describe("role-access matrix", () => {
   let pool: Pool;
   let db: TestDb;
   const jars = {} as Record<Identity, CookieJar>;
+  let world: Awaited<ReturnType<typeof createRestaurantWithItem>>;
+  // IDs that don't exist: signed-in users get 404 (nothing to see), others are stopped earlier.
+  const missingId = crypto.randomUUID();
+  const ctx = (value: Record<string, string>) => ({ params: Promise.resolve(value) });
 
   beforeAll(async () => {
     pool = openPool("app");
     db = testDb(pool);
     await resetDatabase();
     const campus = await createCampus(db);
-    await createLocation(db, campus.id);
+    const location = await createLocation(db, campus.id);
+    world = await createRestaurantWithItem(db, campus.id, location.id);
 
     const make = async (label: string) => {
       const email = uniqueEmail(label);
@@ -85,12 +107,123 @@ describe("role-access matrix", () => {
       name: "GET /api/v1/admin/audit-events",
       call: (jar: CookieJar) => auditGet(appRequest("/api/v1/admin/audit-events", { jar })),
     },
+    {
+      name: "GET /api/v1/restaurants",
+      call: (jar: CookieJar) => restaurantsGet(appRequest("/api/v1/restaurants", { jar })),
+    },
+    {
+      name: "GET /api/v1/restaurants/{slug}",
+      call: (jar: CookieJar) =>
+        restaurantGet(
+          appRequest(`/api/v1/restaurants/${world.restaurant.slug}`, { jar }),
+          ctx({ slug: world.restaurant.slug }),
+        ),
+    },
+    {
+      name: "GET /api/v1/cuisines",
+      call: (jar: CookieJar) => cuisinesGet(appRequest("/api/v1/cuisines", { jar })),
+    },
+    { name: "GET /api/v1/cart", call: (jar: CookieJar) => cartGet(appRequest("/api/v1/cart", { jar })) },
+    {
+      name: "POST /api/v1/cart/items",
+      call: (jar: CookieJar) =>
+        cartItemsPost(
+          appRequest("/api/v1/cart/items", { body: { menuItemId: world.item.id, quantity: 1 }, jar }),
+        ),
+    },
+    {
+      name: "PATCH /api/v1/cart/items/{id}",
+      call: (jar: CookieJar) =>
+        cartItemPatch(
+          appRequest(`/api/v1/cart/items/${missingId}`, { method: "PATCH", body: { quantity: 2 }, jar }),
+          ctx({ cartItemId: missingId }),
+        ),
+    },
+    {
+      name: "DELETE /api/v1/cart/items/{id}",
+      call: (jar: CookieJar) =>
+        cartItemDelete(
+          appRequest(`/api/v1/cart/items/${missingId}`, { method: "DELETE", jar }),
+          ctx({ cartItemId: missingId }),
+        ),
+    },
+    {
+      name: "DELETE /api/v1/cart",
+      call: (jar: CookieJar) => cartDelete(appRequest("/api/v1/cart", { method: "DELETE", jar })),
+    },
+    {
+      name: "POST /api/v1/checkout/quote",
+      call: (jar: CookieJar) =>
+        quotePost(
+          appRequest("/api/v1/checkout/quote", { body: { deliveryLocationId: missingId, tipCents: 0 }, jar }),
+        ),
+    },
+    {
+      name: "GET /api/v1/orders",
+      call: (jar: CookieJar) => ordersGet(appRequest("/api/v1/orders", { jar })),
+    },
+    {
+      name: "POST /api/v1/orders",
+      call: (jar: CookieJar) =>
+        ordersPost(
+          appRequest("/api/v1/orders", {
+            body: { deliveryLocationId: missingId, tipCents: 0, expectedTotalCents: 0 },
+            headers: { "idempotency-key": crypto.randomUUID() },
+            jar,
+          }),
+        ),
+    },
+    {
+      name: "GET /api/v1/orders/{id}",
+      call: (jar: CookieJar) =>
+        orderGet(appRequest(`/api/v1/orders/${missingId}`, { jar }), ctx({ orderId: missingId })),
+    },
+    {
+      name: "POST /api/v1/orders/{id}/transitions",
+      call: (jar: CookieJar) =>
+        transitionPost(
+          appRequest(`/api/v1/orders/${missingId}/transitions`, { body: { toStatus: "CANCELLED" }, jar }),
+          ctx({ orderId: missingId }),
+        ),
+    },
   ] as const;
 
   const U = 401;
   const F = 403;
-  // Expected status for each endpoint × identity.
+  /** Public: same answer for everyone. */
+  const everyone = (status: number) => ({
+    anonymous: status,
+    student: status,
+    courier: status,
+    admin: status,
+    suspended: status,
+    unverified: status,
+  });
+  /** Any active, verified account (role doesn't matter); denied otherwise. */
+  const anyUser = (status: number) => ({
+    anonymous: U,
+    student: status,
+    courier: status,
+    admin: status,
+    suspended: F,
+    unverified: F,
+  });
+  // Expected status for each endpoint × identity. Endpoints run in this order, so the cart is empty
+  // again (DELETE /cart) before quote and order placement, which then fail on business rules (422).
   const expected: Record<(typeof endpoints)[number]["name"], Record<Identity, number>> = {
+    "GET /api/v1/restaurants": everyone(200),
+    "GET /api/v1/restaurants/{slug}": everyone(200),
+    "GET /api/v1/cuisines": everyone(200),
+    "GET /api/v1/cart": anyUser(200),
+    "POST /api/v1/cart/items": anyUser(201),
+    "PATCH /api/v1/cart/items/{id}": anyUser(404),
+    "DELETE /api/v1/cart/items/{id}": anyUser(404),
+    "DELETE /api/v1/cart": anyUser(200),
+    "POST /api/v1/checkout/quote": anyUser(422),
+    "GET /api/v1/orders": anyUser(200),
+    "POST /api/v1/orders": anyUser(422),
+    "GET /api/v1/orders/{id}": anyUser(404),
+    "POST /api/v1/orders/{id}/transitions": anyUser(404),
     "GET /api/health": {
       anonymous: 200,
       student: 200,

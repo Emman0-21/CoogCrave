@@ -38,8 +38,12 @@ export async function closeAllWeek(db: TestDb, restaurantId: string): Promise<vo
   await db.delete(schema.restaurantHours).where(eq(schema.restaurantHours.restaurantId, restaurantId));
 }
 
-/** Empties carts and orders between tests without re-creating accounts (hashing passwords is slow). */
+/**
+ * Empties carts, orders, and rate-limit counters between tests without re-creating accounts (hashing
+ * passwords is slow). Rate limits are covered by their own tests; here they'd only couple tests together.
+ */
 export async function clearOrdering(db: TestDb): Promise<void> {
+  await db.delete(schema.rateLimitBuckets);
   await db.delete(schema.orders);
   await db.delete(schema.carts);
   await db.delete(schema.notifications);
