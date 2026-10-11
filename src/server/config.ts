@@ -47,8 +47,21 @@ const envSchema = z
       .enum(["true", "false"], "must be true or false")
       .default("false")
       .transform((value) => value === "true"),
+    // Plays the restaurant automatically for rehearsals: new orders are confirmed, then made ready,
+    // a few seconds apart (PRD Q3). Off by default; the Kitchen Console is the live demo.
+    DEMO_AUTO_ADVANCE: z
+      .enum(["true", "false"], "must be true or false")
+      .default("false")
+      .transform((value) => value === "true"),
   })
   .superRefine((env, ctx) => {
+    if (env.APP_ENV === "production" && env.DEMO_AUTO_ADVANCE) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["DEMO_AUTO_ADVANCE"],
+        message: "can't be true in production; real restaurants confirm their own orders",
+      });
+    }
     if (env.APP_ENV === "production" && env.DEMO_RESET_ENABLED) {
       ctx.addIssue({
         code: "custom",

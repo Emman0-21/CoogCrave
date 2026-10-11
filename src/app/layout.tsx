@@ -9,6 +9,7 @@ import { cartItemCount } from "@/server/services/cart";
 
 import { archivo, atkinson } from "./fonts";
 import "./globals.css";
+import { unreadNotificationCount } from "@/server/services/notifications";
 
 export const metadata: Metadata = {
   title: { default: "CoogCrave", template: "%s · CoogCrave" },
@@ -33,6 +34,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         firstName: firstName(signedIn),
         isAdmin: signedIn.role === "ADMIN",
         cartCount: await cartItemCount(signedIn.userId),
+        unreadCount: await unreadNotificationCount(signedIn.userId),
       }
     : null;
 

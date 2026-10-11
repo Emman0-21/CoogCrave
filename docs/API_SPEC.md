@@ -1,6 +1,6 @@
 # CoogCrave — API Specification (v1)
 
-> **Status:** Approved at Phase 1; updated through Phase 6a · **Last updated:** 2026-10-11
+> **Status:** Approved at Phase 1; updated through Phase 6b · **Last updated:** 2026-10-11
 > Contracts are designed before implementation. Endpoints marked **(implemented)** match the code and its tests; the rest are the designed contract for later phases. Zod schemas in `src/shared/schemas` and the route files are the source of truth for implemented endpoints.
 
 ---
@@ -95,7 +95,8 @@ Fixed-window counters in Postgres, shared by all server instances (`src/server/r
 | Courier application, availability, decline | 60 / min per user | Implemented |
 | Admin decisions (courier decisions, suspensions) | 60 / min per admin | Implemented |
 | Demo reset | 5 / 10 min per admin | Implemented |
-| Reviews | 10 / hour per user | Phase 6b |
+| Reviews | 10 / hour per user | Implemented |
+| Mark notifications read | 120 / min per user | Implemented |
 
 `/api/health` is exempt (load-balancer polling; it runs only `select 1`).
 
@@ -103,7 +104,7 @@ Fixed-window counters in Postgres, shared by all server instances (`src/server/r
 
 ## 2. Endpoint index
 
-Implemented as of Phase 6a: `GET /api/health`, `/api/auth/*`, `GET/PATCH /me`, `GET /locations`, everything in §5–8 except `POST /orders/{id}/review`, and everything in §10 except restaurant and menu editing (Phase 6b). Notifications (§9) and reviews are Phase 6b. The rest is the designed contract.
+Implemented as of Phase 6b: `GET /api/health`, `/api/auth/*`, `GET/PATCH /me`, `GET /locations`, and everything in §5–10, except the parts of restaurant and menu editing outside the agreed essentials (§10, marked "not built").
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
@@ -299,7 +300,7 @@ An empty cart is `{ restaurant: null, items: [], itemCount: 0, subtotalCents: 0,
 - **Errors:** `400 IDEMPOTENCY_KEY_REQUIRED`; `409 PRICE_CHANGED` (`details.quote`); `422 CART_EMPTY`, `ITEM_UNAVAILABLE`, `RESTAURANT_CLOSED`, `BELOW_MINIMUM_SUBTOTAL`, `INVALID_LOCATION`, `TIP_OUT_OF_RANGE`, `IDEMPOTENCY_KEY_REUSED`; `429`.
 - **Side effects (one transaction, cart row locked):** order + item/option snapshots; status event (`→ PLACED`, actor `CUSTOMER`); `payments` row (`DEMO`, `AUTHORIZED`, reference `demo_pi_…`); notification `ORDER_PLACED`; cart deleted. Order numbers are `CC-` plus 6 Crockford base-32 characters (no I, L, O, U), random, retried on collision inside a savepoint.
 - **Idempotency:** the request hash is SHA-256 of `[deliveryLocationId, deliveryInstructions, tipCents, expectedTotalCents]`. A failed attempt stores nothing, so the same key can be retried after fixing the problem. Simultaneous identical requests: the cart lock serializes them and later ones replay the first order (tested with 5 at once).
-- **Not yet:** `DEMO_AUTO_ADVANCE` (applying T1/T3 automatically after placement) arrives with the demo tooling in Phase 6.
+- **Demo auto-advance** (`DEMO_AUTO_ADVANCE=true`, never in production): a background loop in the server process applies T1 and then T3 as `RESTAURANT_SIM` (no user), each after the order has waited 15 seconds at its status, through the same referee and compare-and-set as the Kitchen Console. For rehearsals; the live demo uses the Kitchen Console.
 - **Never trusted from the client:** prices, fees, tax, totals, restaurant, items (taken from the server-side cart).
 
 ### `GET /orders` — user (implemented)
@@ -355,11 +356,11 @@ Examples:
 | Kitchen Console confirm | `{ "toStatus": "CONFIRMED", "actingAs": "RESTAURANT_SIM" }` |
 | Admin resolves problem | `{ "toStatus": "CANCELLED", "reason": "Restaurant out of stock" }` |
 
-### `POST /orders/{orderId}/review` — user (Phase 6)
-- **Request:** `{ "rating": 1–5, "comment"?: string ≤ 500 }`
+### `POST /orders/{orderId}/review` — user (implemented)
+- **Request:** `{ "rating": integer 1–5, "comment"?: string ≤ 500 | null }` (strict; the comment is trimmed, empty becomes null, no `<` or `>`).
 - **Response 201:** `{ "id", "rating", "comment", "createdAt" }`
-- **Errors:** `404` (not the caller's order); `409 ALREADY_REVIEWED`; `422 NOT_REVIEWABLE` (status ≠ `DELIVERED`).
-- **Side effects:** insert `reviews` (unique per order).
+- **Errors:** `404` (not the caller's order — including the courier and admins); `409 ALREADY_REVIEWED` (also when several submits race: the unique index decides, tested with 5 at once); `422 NOT_REVIEWABLE` (status ≠ `DELIVERED`).
+- **Side effects:** insert `reviews` for the courier who delivered it (their average in `GET /courier/earnings`). Projections: the customer and admins see `review`; the courier sees `rating` only.
 
 ---
 
@@ -404,11 +405,12 @@ Routes marked *courier* need an approved courier profile (`403 COURIER_NOT_APPRO
 
 ## 9. Notifications — user
 
-### `GET /notifications`
-- **Query:** `unreadOnly?`, `limit`, `cursor` → list of `{ "id", "type", "title", "body", "orderId", "readAt", "createdAt" }`; response also includes `unreadCount`.
+### `GET /notifications` (implemented)
+- **Query (strict):** `unreadOnly?` (`true`/`false`), `limit` 1–50 (default 20), `cursor?` → `{ "data": [{ "id", "type", "title", "body", "orderId", "href", "readAt", "createdAt" }], "nextCursor", "unreadCount" }`, newest first.
+- `href` is where the notification leads for *this* reader: the customer's order page, or `/courier/history` when the same notice went to a courier (they can't open the customer page), or `/courier` for a courier decision.
 
-### `POST /notifications/mark-read`
-- **Request:** `{ "ids": uuid[] (1–50) }` or `{ "all": true }` → **204**. Only the caller's notifications are affected.
+### `POST /notifications/mark-read` (implemented)
+- **Request:** `{ "ids": uuid[] (1–50) }` or `{ "all": true }` → **204**. Only the caller's unread notifications change; other people's IDs are ignored with the same response, so they can't be probed. A notification keeps its first read time.
 
 ---
 
@@ -438,16 +440,12 @@ All admin mutations write an `audit_events` row (actor, action, target, before/a
 - **Side effects:** status, `reviewed_at/by`, `review_note`; anything but approved forces offline; notification `COURIER_APPLICATION_DECIDED`; audit `courier.<decision>`.
 - **Concurrency:** the decision locks the courier profile (`FOR UPDATE`) and accepting a delivery re-reads it under `FOR SHARE`, so a suspension and an accept can't both succeed.
 
-### Restaurants and menus (Phase 6b, essentials only — see `DEVELOPMENT_PLAN.md`)
-- `GET /admin/restaurants?includeDeleted=` · `POST /admin/restaurants` — `{ name, slug, description?, locationId, cuisineSlugs[], imagePath?, pickupNotes?, isAcceptingOrders }` → **201**; `409` on duplicate slug.
-- `PATCH /admin/restaurants/{id}` — any subset of the create fields → **200**.
-- `DELETE /admin/restaurants/{id}` — soft delete → **204**; `409` if it has non-terminal orders.
-- `PUT /admin/restaurants/{id}/hours` — `{ "hours": [{ dayOfWeek, opensAtMinute, closesAtMinute }] }` replaces the week; overlapping ranges → `400`.
-- `POST /admin/restaurants/{id}/menu-categories` — `{ name, sortOrder? }` · `PATCH`/`DELETE /admin/menu-categories/{id}`.
-- `POST /admin/restaurants/{id}/menu-items` — `{ categoryId, name, description?, priceCents, imagePath?, isAvailable, sortOrder? }` (category must belong to the restaurant → else `422`).
-- `PATCH /admin/menu-items/{id}` — subset incl. `isAvailable`, `priceCents`. Price changes never alter existing orders (snapshots).
-- `DELETE /admin/menu-items/{id}` — soft delete; existing carts containing it show `ITEM_UNAVAILABLE`.
-- `PUT /admin/menu-items/{id}/option-groups` — full option tree `[{ id?, name, minSelect, maxSelect, options: [{ id?, name, priceDeltaCents, isAvailable }] }]`; omitted existing groups/options are soft-deleted.
+### Restaurants and menus (Phase 6b: the agreed essentials)
+- `GET /admin/restaurants` (implemented) → `{ "data": RestaurantSummary[] }` (§5 shape), every active restaurant including ones not taking orders.
+- `PATCH /admin/restaurants/{id}` (implemented) — `{ "isAcceptingOrders": boolean }` (strict) → **200** `{ id, isAcceptingOrders }`. Audited `restaurant.update` with before/after; repeating the current value changes and records nothing. `404` for unknown or deleted.
+- `PATCH /admin/menu-items/{id}` (implemented) — `{ "isAvailable"?: boolean, "priceCents"?: integer 0–10 000 }`, at least one → **200** `{ id, name, priceCents, isAvailable }`. Audited `menu_item.update` with only the fields that changed. Price changes never alter existing orders (snapshots); carts re-price on their next read and checkout answers `409 PRICE_CHANGED` to a stale total.
+- `pnpm db:seed` and demo reset restore the sample values.
+- **Not built (outside the agreed essentials):** creating or deleting restaurants, editing names, descriptions, cuisines, images, or hours, menu categories, adding or deleting items, and option groups. Their designed contracts were: `POST /admin/restaurants`, `PATCH` of other fields, `DELETE /admin/restaurants/{id}`, `PUT /admin/restaurants/{id}/hours`, category and item `POST`/`PATCH`/`DELETE`, and `PUT /admin/menu-items/{id}/option-groups`.
 
 ### `GET /admin/orders` (implemented)
 - **Query:** `status?` (repeatable), `restaurantId?`, `q?` (order number, customer email, or customer name), `limit`, `cursor`.

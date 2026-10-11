@@ -11,6 +11,7 @@ import {
   type UserRole,
 } from "@/shared/enums";
 
+import type { ReviewView } from "./engagement";
 import { oneOrMany, requiredNote, optionalNote, type PriceView } from "./ordering";
 
 /**
@@ -163,8 +164,47 @@ export interface AdminOrderView {
     amountCents: number;
     reference: string;
   } | null;
+  review: ReviewView | null;
   /** Moves an admin can make here as ADMIN (all need a reason). Kitchen moves live in the Kitchen Console. */
   allowedTransitions: { toStatus: OrderStatus; reasonRequired: boolean }[];
+}
+
+// ── Restaurants and menus (essentials, PRD ADM-4, ADM-5) ──────────────────────
+
+export const restaurantParamsSchema = z.strictObject({ restaurantId: z.uuid() });
+export const menuItemParamsSchema = z.strictObject({ menuItemId: z.uuid() });
+
+/** Phase 6b scope: open or close a restaurant for orders. Other restaurant fields come from the seed. */
+export const restaurantPatchSchema = z.strictObject({ isAcceptingOrders: z.boolean() });
+export type RestaurantPatchInput = z.infer<typeof restaurantPatchSchema>;
+
+/** The most an item may cost: $100. Catches a typo like 6990 for 6.99 dollars before a customer sees it. */
+export const MAX_ITEM_PRICE_CENTS = 10_000;
+
+/** Phase 6b scope: mark an item sold out (or back), and change its price. */
+export const menuItemPatchSchema = z
+  .strictObject({
+    isAvailable: z.boolean().optional(),
+    priceCents: z
+      .number()
+      .int("Use whole cents.")
+      .min(0, "A price can't be negative.")
+      .max(MAX_ITEM_PRICE_CENTS, "Prices are at most $100.00.")
+      .optional(),
+  })
+  .refine((v) => v.isAvailable !== undefined || v.priceCents !== undefined, "Change something.");
+export type MenuItemPatchInput = z.infer<typeof menuItemPatchSchema>;
+
+export interface AdminRestaurantView {
+  id: string;
+  isAcceptingOrders: boolean;
+}
+
+export interface AdminMenuItemView {
+  id: string;
+  name: string;
+  priceCents: number;
+  isAvailable: boolean;
 }
 
 // ── Dashboard and demo ─────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 # CoogCrave — Testing
 
-> **Last updated:** 2026-10-11 (Phase 6a). Describes what exists now; each phase adds to it.
+> **Last updated:** 2026-10-11 (Phase 6b). Describes what exists now; each phase adds to it.
 
 ## 1. Test layers
 
@@ -41,7 +41,22 @@ Most of CoogCrave's correctness guarantees live in Postgres: CHECK constraints o
 | `src/server/services/**` | 90% | 80% | 90% | 90% |
 - Coverage is a floor, not proof. Every state transition, authorization boundary, and user journey also gets an explicit test, whatever the percentage says.
 
-## 4. What the Phase 6a tests cover
+## 4. What the Phase 6b tests cover
+
+| Control | Test file | Requirement / threat |
+|---|---|---|
+| Inbox: own notifications only, newest first, unread count; cursor paging and unread filter; strict query; mark some or all read, ignoring other people's IDs, keeping the first read time; strict body; each notification links to a page its reader can open (courier copies go to the courier's history) | `integration/engagement.test.ts`, `unit/notification-links.test.ts` | NTF-1, NTF-2 · T-01 |
+| Reviews: only the customer (courier and admin → 404), only when delivered (422), once (409); 5 simultaneous submits → one row; strict input; customer and admin see the review, the courier only the stars; the courier's average updates and rounds to one decimal | `integration/engagement.test.ts` | REV-1, REV-2, DLV-11 · T-13, T-05 |
+| Menu editing: stop/start orders (cart flagged, order refused), sold out (can't add, carts flagged) and back, price change (carts re-price, stale total → `PRICE_CHANGED`, placed orders unchanged); before/after audit only for real changes; bad input 400; unknown or deleted 404; the seed restores sample values | `integration/admin-catalog.test.ts` | ADM-4, ADM-5, ADM-9 · T-12 |
+| Demo auto-advance: off unless asked and never in production; confirm, then ready, one step per wait, as the simulated restaurant with no user, customer notified; cancelled orders untouched; racing the Kitchen Console for 10 rounds never double-moves; the timer never overlaps passes, logs failures, keeps going, and stops | `integration/auto-advance.test.ts`, `unit/config.test.ts` | Q3 |
+| Role matrix extended to the 6 new endpoints | `integration/role-access.test.ts` | T-03 |
+| Inbox (open marks read and navigates, no repeat marking, mark all refreshes the badge, older pages, empty state), rating form (stars required, sends rating and comment, server errors shown, existing rating in words), menu editor (price parsing, cents sent, bad prices refused locally, sold out and back, price field follows the saved value, stop/start orders), header unread badge | `component/engagement-ui.test.tsx`, `component/admin-ui.test.tsx`, `component/landing.test.tsx` | NTF-2, REV-1, ADM-4, ADM-5 |
+| **Journey J4, complete** (mobile + desktop): order, Kitchen Console, courier accepts, picks up, delivers; the customer rates it, opens the inbox from the header badge, follows a notification to the order; the courier's rating updates; the admin opens the order record and sees every step and the rating | `e2e/delivery.spec.ts` | Phase 6 exit criterion |
+| Menu editing journey (mobile + desktop, different items): sold out shows on the customer menu at once, then back | `e2e/admin.spec.ts` | ADM-5 |
+
+Mutation checks in Phase 6b (broken on purpose, test failed, restored): notification owner filter on mark-read; review owner check; review duplicate translation; courier projection exposing the comment; deleted-item filter in menu editing; "audit only real changes" (first survived: no test made a no-op change to an item; a test was added and now catches it); auto-advance skipping a step someone else already took. One survived by design: dropping the expected version in auto-advance, because the referee itself rejects a move from a status the order no longer has; the version check stays as a second guard.
+
+## 4a. What the Phase 6a tests cover
 
 | Control | Test file | Requirement / threat |
 |---|---|---|
@@ -60,7 +75,7 @@ Most of CoogCrave's correctness guarantees live in Postgres: CHECK constraints o
 
 Mutation checks in Phase 6a (broken on purpose, test failed, restored): the locked re-read of the courier during accept (the suspend-vs-accept race then lets both succeed); the demo-reset guard for a demo courier holding an outside delivery.
 
-## 4a. What the Phase 5 tests cover
+## 4b. What the Phase 5 tests cover
 
 | Control | Test file | Requirement / threat |
 |---|---|---|
@@ -80,7 +95,7 @@ Mutation checks in Phase 5 (each broken on purpose, test failed, code restored):
 
 **Flakiness check (exit criterion):** the two concurrency tests were run 20 times in a row (each run is itself 20 rounds): 20/20 green.
 
-## 4b. What the Phase 4 tests cover
+## 4c. What the Phase 4 tests cover
 
 | Control | Test file | Requirement / threat |
 |---|---|---|

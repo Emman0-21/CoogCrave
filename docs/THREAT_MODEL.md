@@ -1,6 +1,6 @@
 # CoogCrave — Threat Model
 
-> **Status:** Approved at Phase 1; control status updated after Phase 6a (§5) · **Last updated:** 2026-10-11
+> **Status:** Approved at Phase 1; control status updated after Phase 6b (§5) · **Last updated:** 2026-10-11
 > Method: assets → actors → trust boundaries → threats (STRIDE) with a mitigation **and a way to verify it**. A control without a verification is listed as unverified, not as done. Re-reviewed at the end of every phase (`CODE_REVIEW_LOG.md`).
 
 ---
@@ -111,6 +111,17 @@ Verification types: **U** unit test · **I** integration test (real DB) · **E**
 
 Status moves from **Designed** → **Implemented** (code exists) → **Verified** (its listed test or check passes). Nothing is called Verified on the strength of a library being installed.
 
+### After Phase 6b
+
+| ID | Status | Evidence |
+|---|---|---|
+| T-13 Duplicate or foreign reviews | **Verified** | Only the order's customer (courier and admins get 404); only `DELIVERED` (422); a second review → 409; 5 simultaneous submits → exactly one row (unique index). Mutation: removing the owner check fails the test. |
+| T-01 for notifications | **Verified** | Each user lists only their own; marking someone else's IDs read changes nothing and answers the same as unknown IDs. Mutation: removing the owner filter fails the test. |
+| T-05 for ratings | **Verified** | The courier projection carries the rating only, never the comment (asserted on the whole JSON). |
+| T-03 Route-level access | **Verified** for the 6 new endpoints | Role matrix: notifications and reviews any active user; restaurant and menu editing admin-only. |
+| T-12 Audit | **Verified** for menu editing | `restaurant.update` and `menu_item.update` rows with before/after, only for real changes (mutation-checked). |
+| Demo tooling in production | **Verified** | `DEMO_AUTO_ADVANCE=true` with `APP_ENV=production` stops the app at startup (unit), like `DEMO_RESET_ENABLED`. |
+
 ### After Phase 6a
 
 | ID | Status | Evidence |
@@ -187,7 +198,7 @@ Status moves from **Designed** → **Implemented** (code exists) → **Verified*
 
 ### OWASP checklist from the master prompt
 
-| Prompt checklist item | Threat IDs | Status after Phase 6a |
+| Prompt checklist item | Threat IDs | Status after Phase 6b |
 |---|---|---|
 | Broken access control | T-01 – T-07, T-12 | T-01 – T-07 and T-12 verified (customers, couriers, admins) |
 | Injection | T-22 | Verified (lint + review of Phase 3 queries) |

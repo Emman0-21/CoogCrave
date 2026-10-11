@@ -60,17 +60,21 @@ describe("site header", () => {
     expect(within(nav).queryByRole("link", { name: /^Cart/ })).toBeNull();
   });
 
-  it("shows orders, the cart count, the account link, and Admin only to admins", () => {
-    const { rerender } = render(<SiteHeader user={{ firstName: "Alex", isAdmin: false, cartCount: 0 }} />);
+  it("shows orders, the cart and unread counts, the account link, and Admin only to admins", () => {
+    const { rerender } = render(
+      <SiteHeader user={{ firstName: "Alex", isAdmin: false, cartCount: 0, unreadCount: 0 }} />,
+    );
     expect(screen.getByRole("link", { name: "Alex: your account" })).toHaveAttribute("href", "/profile");
     expect(screen.getByRole("link", { name: "Orders" })).toHaveAttribute("href", "/orders");
     expect(screen.getByRole("link", { name: "Cart, empty" })).toHaveAttribute("href", "/cart");
+    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute("href", "/notifications");
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Admin" })).toBeNull();
 
-    rerender(<SiteHeader user={{ firstName: "Ada", isAdmin: true, cartCount: 3 }} />);
+    rerender(<SiteHeader user={{ firstName: "Ada", isAdmin: true, cartCount: 3, unreadCount: 2 }} />);
     expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("href", "/admin");
     expect(screen.getByRole("link", { name: "Cart, 3 items" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Inbox, 2 unread" })).toHaveAttribute("href", "/notifications");
   });
 });
 

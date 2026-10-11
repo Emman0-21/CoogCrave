@@ -119,10 +119,10 @@ Each requirement has an ID used in the development plan, tests, and PR template.
 | TRK-1 | Tracking page shows status timeline, restaurant, items, courier first name (when assigned), drop point, and timestamps of each step. | M |
 | TRK-2 | Status updates appear without reload (polling every ~5 s while active, paused when tab hidden, stopped at terminal state). | M |
 | TRK-3 | No fabricated GPS positions or ETAs. If an estimate is ever shown it must be labeled as an estimate and its basis documented. | M |
-| NTF-1 | Persisted in-app notifications for: placed, confirmed, ready for pickup, courier assigned, courier released, picked up, delivered, cancelled, delivery failed, courier application decided. | S |
-| NTF-2 | Unread badge, notification list, mark read / mark all read. | S |
-| REV-1 | After `DELIVERED`, the customer can rate the delivery 1–5 with an optional comment (≤ 500 chars). One review per order. | S |
-| REV-2 | Only the order's customer can review it. | S |
+| NTF-1 | Persisted in-app notifications for: placed, confirmed, ready for pickup, courier assigned, courier released, picked up, delivered, cancelled, delivery failed, courier application decided. *Built (rows since Phase 4–6a, inbox in 6b). Couriers are also told when an admin takes their delivery.* | S |
+| NTF-2 | Unread badge, notification list, mark read / mark all read. *Built (6b). The badge updates on the next page load, not live.* | S |
+| REV-1 | After `DELIVERED`, the customer can rate the delivery 1–5 with an optional comment (≤ 500 chars). One review per order. *Built (6b). The courier sees the stars; admins also see the comment.* | S |
+| REV-2 | Only the order's customer can review it. *Built (6b).* | S |
 
 ### 4.6 Administration (ADM)
 
@@ -131,9 +131,9 @@ Each requirement has an ID used in the development plan, tests, and PR template.
 | ADM-1 | Dashboard metrics: orders today by status, online couriers, pending courier applications, simulated GMV. *Built (6a), plus active deliveries.* | S |
 | ADM-2 | Review courier applications; approve or reject with a note; suspend an approved courier. *Built (6a), plus reinstating a suspended courier. Suspending mid-delivery is refused until the order is resolved.* | M |
 | ADM-3 | User list with search; suspend / unsuspend users. *Built (6a). A reason is required; admins can't suspend themselves or other admins.* | S |
-| ADM-4 | *(6b, essentials only)* Create, edit, and soft-delete restaurants (name, description, campus location, cuisines, hours, image, accepting-orders switch). | S |
-| ADM-5 | *(6b, essentials only)* Manage menu categories, items (price, availability), and option groups/options. | S |
-| ADM-6 | Order list with filters; order detail with status history, assignment, simulated payment record, and review. *Built (6a) except the review, which arrives with reviews in 6b.* | M |
+| ADM-4 | *(6b, essentials only: built the accepting-orders switch; the rest is not built)* Create, edit, and soft-delete restaurants (name, description, campus location, cuisines, hours, image, accepting-orders switch). | S |
+| ADM-5 | *(6b, essentials only: built sold-out and price changes; the rest is not built)* Manage menu categories, items (price, availability), and option groups/options. | S |
+| ADM-6 | Order list with filters; order detail with status history, assignment, simulated payment record, and review. *Built (6a); the rating shows since 6b.* | M |
 | ADM-7 | **Kitchen Console:** perform simulated restaurant actions (confirm, mark ready, reject) on orders. Each action is labeled simulated and recorded with actor type `RESTAURANT_SIM`. *Built in Phase 5 (moved up from Phase 6 so the courier journey works end to end); each action also writes an audit row naming the admin.* | M |
 | ADM-8 | Resolve problems: cancel any non-terminal order with a reason; unassign a courier before pickup. *Built (6a), plus closing a picked-up order as not delivered. The courier is notified when an admin takes their delivery.* | S |
 | ADM-9 | Every admin mutation writes an append-only audit event; admins can browse the audit log. *Built: the log since Phase 3; 6a adds reasons and links to each target.* | M |
@@ -210,6 +210,6 @@ Assumptions are the defaults the plan proceeds with if not answered. Open questi
 |---|---|---|
 | Q1 | Real UH venue names (with "sample menu — not affiliated" labels) or fictional names? | **Decided (Phase 3 checkpoint): real UH venue names**, generic imagery, sample menus/prices/hours, "Sample menu — not affiliated" on every restaurant card and page |
 | Q2 | Restrict sign-up to UH email domains? | Yes in production; demo/judge accounts are seeded |
-| Q3 | Demo: show the Kitchen Console step live, or auto-advance restaurant steps? | Kitchen Console live; an auto-advance toggle exists for rehearsal in non-production only |
+| Q3 | Demo: show the Kitchen Console step live, or auto-advance restaurant steps? | Kitchen Console live; an auto-advance toggle exists for rehearsal in non-production only. *Built (6b): `DEMO_AUTO_ADVANCE`, see `DEMO_GUIDE.md`.* |
 | Q4 | Hackathon date, team size, and who builds what? | Unknown — affects scope cuts in `DEVELOPMENT_PLAN.md` |
 | Q5 | Hosting accounts (Vercel + Neon) and an email provider (Resend) available? | Local-only until credentials exist; documented as a Phase 8 blocker |

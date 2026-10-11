@@ -100,9 +100,10 @@ coogcrave/
 │  ├─ app/                     # routes only: layout, pages, error states
 │  │  ├─ sign-up/ sign-in/ check-email/ forgot-password/ reset-password/   # account pages (Phase 3)
 │  │  ├─ profile/              # signed-in account page (Phase 3)
-│  │  ├─ admin/                # dashboard, couriers/, users/, orders/, orders/[orderId]/, activity/ (Phase 6a), kitchen/ (Phase 5); restaurants and menus 6b
+│  │  ├─ admin/                # dashboard, couriers/, users/, orders/, orders/[orderId]/, activity/ (6a), kitchen/ (5), restaurants/, restaurants/[slug]/ (6b)
 │  │  ├─ restaurants/, restaurants/[slug]/, cart/, checkout/, orders/, orders/[orderId]/   # customer ordering (Phase 4)
 │  │  ├─ courier/, courier/history/   # apply, go online, offers, current delivery, earnings (Phase 5)
+│  │  ├─ notifications/        # the inbox (Phase 6b)
 │  │  └─ api/
 │  │     ├─ auth/[...all]/route.ts   # Better Auth handler
 │  │     ├─ health/route.ts
@@ -121,9 +122,10 @@ coogcrave/
 │     ├─ auth/                 # Better Auth config, /api/auth wrapper, session → Actor, page guards, password policy, auth rate limits
 │     ├─ http/                 # route wrapper: CSRF origin check, rate limits, access level, validation, size limit, errors, logging
 │     ├─ domain/               # PURE: access policies, email rule, safe redirects, pricing, hours, options, order state machine, delivery rules, admin decision rules — no I/O
-│     ├─ services/             # use cases: profile, locations, audit, catalog, cart, checkout, orders, order-workflow (the referee), courier, kitchen, notifications, admin-people, admin-orders, admin-ops (+ reviews, menu editing in 6b)
+│     ├─ services/             # use cases: profile, locations, audit, catalog, cart, checkout, orders, order-workflow (the referee), courier, kitchen, notifications, reviews, admin-people, admin-orders, admin-ops, admin-catalog
 │     ├─ accounts/             # direct account creation for seeds and the admin CLI (not reachable from HTTP)
 │     ├─ seed/                 # catalog + demo-account seed logic (scripts/ are thin wrappers)
+│     ├─ demo/                 # demo auto-advance (rehearsal only), started from src/instrumentation.ts
 │     ├─ payments/             # PaymentGateway port + DemoPaymentGateway (simulated)
 │     ├─ mail/                 # Mailer port + FileOutboxMailer (dev/test); a real provider is a Phase 8 decision
 │     ├─ rate-limit/           # RateLimiter port + Postgres implementation
@@ -299,7 +301,7 @@ Why the rate limiter is in Postgres and not in memory: serverless instances don'
 
 ## 10. Notifications
 
-Notifications are rows written **inside the same transaction** as the status change that caused them, so a notification can never exist for a change that rolled back (and vice versa). Clients poll `GET /api/v1/notifications` (unread count in the header bar). Push/email delivery can later be added by a worker that reads new rows — the write side doesn't change.
+Notifications are rows written **inside the same transaction** as the status change that caused them, so a notification can never exist for a change that rolled back (and vice versa). **Implemented (Phase 6b):** the inbox page lists them, and the header shows the unread count, computed when each page is rendered (it isn't polled; it updates on the next navigation). Opening a notification marks it read and follows its `href`, which the server chooses per reader. Push/email delivery can later be added by a worker that reads new rows — the write side doesn't change.
 
 ---
 
@@ -335,7 +337,7 @@ Notifications are rows written **inside the same transaction** as the status cha
 | `MAIL_TRANSPORT` (`file`), `MAIL_FROM`, `MAIL_OUTBOX_DIR` | Email delivery. Only `file` exists; deployed environments refuse it, so a real provider must be added before deployment (Phase 8) | Phase 3 |
 | `SEED_DEMO_PASSWORD` | Password for seeded demo accounts (10+ characters; never in source code; demo seed refuses to run in production) | Phase 3 |
 | `ADMIN_PASSWORD` | Optional, read only by `pnpm admin:create`; without it the CLI prompts with hidden input | Phase 3 |
-| `DEMO_RESET_ENABLED`, `DEMO_AUTO_ADVANCE` | Demo tooling; both ignored when `APP_ENV=production` | Phase 6 |
+| `DEMO_RESET_ENABLED`, `DEMO_AUTO_ADVANCE` | Demo tooling, both `false` by default; the app **refuses to start** with either `true` when `APP_ENV=production` | Implemented (6a, 6b) |
 
 `.env.example` documents the variables in use, with local-only placeholder values. `APP_ENV` is also read at **build** time (HSTS headers are baked into the build), so deployments must set it for the build step too.
 
@@ -409,3 +411,8 @@ Vercel hosts the Next.js app; Neon hosts Postgres (pooled URL for the app, direc
 | 2026-10-11 | **An admin who placed an order acts as its customer** on that order | Keeps one rule ("the owner is the customer") and avoids an admin quietly using admin powers on their own order. They can still see it in the admin view. | Claude, recorded for review |
 | 2026-10-11 | **Demo reset is off by default** (`DEMO_RESET_ENABLED=false`), config refuses it in production, the endpoint answers 404 when off, and it refuses while a demo courier holds a non-demo customer's delivery | Reset deletes data. Three independent guards, and it never leaves a real customer's order stuck with a courier whose profile it just reset. | Claude, recorded for review |
 | 2026-10-11 | **`/admin` is now the dashboard; the activity log moved to `/admin/activity`** | The dashboard is what an admin needs first; all admin pages share one navigation with a count of waiting applications. | Claude, recorded for review |
+| 2026-10-11 | **Menu editing = the three agreed essentials**: stop/start orders per restaurant, mark items sold out, change item prices (≤ $100) | What a live demo actually needs; everything else stays in the seed data. Opening hours are *not* editable, so a demo must run during sample hours (`DEMO_GUIDE.md` §1). | Emman (Phase 6 start), recorded |
+| 2026-10-11 | **Demo auto-advance runs as an in-process timer** started by Next.js instrumentation, only when `DEMO_AUTO_ADVANCE=true` and never in production | No job runner exists and a demo needs none. It goes through the referee with compare-and-set, so several server instances or a simultaneous Kitchen Console press can't double-move an order (tested). Status events carry `RESTAURANT_SIM` with no user, which marks them as automatic. | Claude, recorded for review |
+| 2026-10-11 | **Couriers see the star rating, not the comment** | API_SPEC §7.1 "rating only". Comments can be blunt; admins read them. The form says so. | Claude, recorded for review |
+| 2026-10-11 | **The unread badge isn't polled** | It's computed per page render; polling every page for a badge would double request volume for little benefit. The order page already polls its own status. Revisit with push in a later phase. | Claude, recorded for review |
+| 2026-10-11 | **Star ratings use real radio inputs laid invisibly over each star** | Screen readers announce "4 stars, good" as a radio group; touch and mouse land on the actual input; no custom ARIA widget. | Claude, recorded for review |

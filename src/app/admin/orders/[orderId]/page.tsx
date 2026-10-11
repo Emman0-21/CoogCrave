@@ -12,6 +12,7 @@ import {
 import { ReasonAction } from "@/components/features/admin/reason-action";
 import { StatusBadge } from "@/components/features/admin/status-badge";
 import { PriceBreakdown } from "@/components/features/cart/price-breakdown";
+import { Stars } from "@/components/features/orders/review-panel";
 import { requirePageAccess } from "@/server/auth/page-guards";
 import { getAdminOrder } from "@/server/services/admin-orders";
 import { CAMPUS_TIME_ZONE, formatCents, formatDateTime } from "@/shared/format";
@@ -59,7 +60,9 @@ export default async function AdminOrderPage(props: PageProps<"/admin/orders/[or
                     <time dateTime={event.at}>{formatDateTime(event.at, CAMPUS_TIME_ZONE)}</time>
                     {", by "}
                     {ACTOR_LABEL[event.actorType].toLowerCase()}
-                    {event.actor && ` (${event.actor.name})`}
+                    {event.actor
+                      ? ` (${event.actor.name})`
+                      : event.actorType === "RESTAURANT_SIM" && " (automatic demo step)"}
                   </p>
                   {event.reason && <p className="mt-1">“{event.reason}”</p>}
                 </li>
@@ -184,6 +187,25 @@ export default async function AdminOrderPage(props: PageProps<"/admin/orders/[or
             )}
             <p className="mt-2 text-sm text-ink-muted">Demo payments only. No money moves.</p>
           </section>
+
+          {order.status === "DELIVERED" && (
+            <section aria-labelledby="review-heading">
+              <h2 id="review-heading" className="font-display text-xl font-extrabold">
+                Customer&apos;s rating
+              </h2>
+              {order.review ? (
+                <>
+                  <p className="mt-2">
+                    <Stars rating={order.review.rating} /> {order.review.rating} out of 5,{" "}
+                    {formatDateTime(order.review.createdAt, CAMPUS_TIME_ZONE)}
+                  </p>
+                  {order.review.comment && <p className="mt-1">“{order.review.comment}”</p>}
+                </>
+              ) : (
+                <p className="mt-2 text-ink-muted">Not rated yet.</p>
+              )}
+            </section>
+          )}
         </aside>
       </div>
     </AdminPage>

@@ -19,6 +19,7 @@ import { allowedTransitions, checkTransition } from "@/server/domain/order-state
 import type { AdminOrderListView, AdminOrdersQuery, AdminOrderView } from "@/shared/schemas/admin";
 
 import { likePattern } from "./catalog";
+import { loadReview } from "./reviews";
 import { decodeCursor, encodeCursor, microsecondTimestamp } from "./pagination";
 
 /**
@@ -196,6 +197,7 @@ export async function loadAdminOrder(db: DbExecutor, orderId: string): Promise<A
       endedAt: a.endedAt?.toISOString() ?? null,
     })),
     payment: payment ? { mode: "DEMO", ...payment } : null,
+    review: await loadReview(db, o.id),
     allowedTransitions: allowedTransitions(o.status, "ADMIN").map((toStatus) => ({
       toStatus,
       reasonRequired: checkTransition(o.status, toStatus, "ADMIN").allowed === false,

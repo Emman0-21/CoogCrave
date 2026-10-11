@@ -39,6 +39,26 @@ describe("parseConfig", () => {
     );
   });
 
+  it("keeps demo auto-advance off unless asked, and refuses it in production", () => {
+    expect(parseConfig(valid).DEMO_AUTO_ADVANCE).toBe(false);
+    expect(parseConfig({ ...valid, DEMO_AUTO_ADVANCE: "true" }).DEMO_AUTO_ADVANCE).toBe(true);
+    expect(captureConfigError({ ...valid, DEMO_AUTO_ADVANCE: "1" }).problems).toEqual([
+      "DEMO_AUTO_ADVANCE must be true or false",
+    ]);
+    const production = {
+      ...valid,
+      APP_ENV: "production",
+      APP_URL: "https://coogcrave.example",
+      BETTER_AUTH_SECRET: "x".repeat(40),
+      DEMO_AUTO_ADVANCE: "true",
+    };
+    expect(captureConfigError(production).problems).toEqual(
+      expect.arrayContaining([
+        "DEMO_AUTO_ADVANCE can't be true in production; real restaurants confirm their own orders",
+      ]),
+    );
+  });
+
   it("coerces numeric settings from strings", () => {
     expect(parseConfig({ ...valid, DB_POOL_MAX: "4" }).DB_POOL_MAX).toBe(4);
   });

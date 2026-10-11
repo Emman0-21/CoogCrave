@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { ActorType, OrderStatus, TransportMode } from "@/shared/enums";
+import type { ReviewView } from "./engagement";
 
 /**
  * Request schemas and response types for catalog, cart, checkout, and orders (docs/API_SPEC.md §5–7).
@@ -274,5 +275,7 @@ export interface OrderDetailView {
   payment: { mode: "DEMO"; status: "AUTHORIZED" | "CAPTURED" | "VOIDED" };
   /** Once a courier is assigned: their first name and how they're getting around. */
   courier: { firstName: string; transportMode: TransportMode } | null;
+  /** The customer's rating, once given (PRD REV-1). */
+  review: ReviewView | null;
   allowedTransitions: AllowedTransitionView[];
 }
