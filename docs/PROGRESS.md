@@ -1,7 +1,75 @@
 # CoogCrave — Progress
 
-**Current phase:** 6a — Admin operations · **Status:** `IN REVIEW` (awaiting Phase 6a checkpoint approval)
-**Branch:** `feature/admin-operations` (5 commits on top of `main` at `1d39e50`) · **Last updated:** 2026-10-11
+**Current phase:** 6b — Notifications, reviews, menu editing · **Status:** `IN REVIEW` (awaiting Phase 6b checkpoint approval)
+**Branch:** `feature/notifications-reviews` (6 commits on top of `main` at `2ec55be`) · **Last updated:** 2026-10-11
+
+---
+
+## Phase 6b report
+
+The second half of Phase 6. With it, every Phase 6 requirement is built (menu editing to the agreed essentials).
+
+### 1. What was implemented
+
+| Task | Status | Notes |
+|---|---|---|
+| Notifications inbox (NTF-1, NTF-2) | `COMPLETE` | Inbox page, unread badge in the header, open marks read and goes to the right page for that reader, mark all read, older pages |
+| Ratings (REV-1, REV-2, DLV-11) | `COMPLETE` | 1–5 stars and an optional comment on delivered orders, once, customer only; counts toward the courier's average; couriers see the stars, admins the comment too |
+| Menu editing, essentials (ADM-4, ADM-5) | `COMPLETE` | Stop or start orders per restaurant, mark items sold out and back, change prices; audited with before/after; the seed and demo reset restore samples. Opening hours and the rest of full editing are not built, as agreed |
+| Demo auto-advance (Q3) | `COMPLETE` | `DEMO_AUTO_ADVANCE=true` plays the restaurant every 15 s for rehearsals; refused in production; safe alongside the Kitchen Console |
+| Full J4 journey E2E | `COMPLETE` | Order to delivery, rating, inbox, admin record |
+| `DEMO_GUIDE.md` | `COMPLETE` | Setup, three-window script, admin tour, reset, troubleshooting, what to say honestly. Its main story was run end to end with the demo accounts while taking the screenshots |
+
+### 2. Files changed
+
+58 files (23 added, 35 modified) since `main`.
+
+- **Services:** `src/server/services/{reviews,admin-catalog}.ts` (new), `notifications.ts` (inbox, links), `orders.ts` and `admin-orders.ts` (rating in projections); `src/server/demo/auto-advance.ts`, `src/instrumentation.ts` (new); `src/server/config.ts` (`DEMO_AUTO_ADVANCE`); `src/server/http/{errors,limits}.ts`
+- **API:** `src/app/api/v1/{notifications,notifications/mark-read,orders/[orderId]/review,admin/restaurants,admin/restaurants/[restaurantId],admin/menu-items/[menuItemId]}/route.ts`
+- **Shared:** `src/shared/schemas/engagement.ts` (new), `ordering.ts`, `delivery.ts`, `admin.ts`
+- **UI:** `/notifications` (inbox), rating panel on delivered orders, header Inbox badge, `/admin/restaurants` and `/admin/restaurants/[slug]`, rating on the admin order record, automatic steps labeled there
+- **Tests:** `integration/{engagement,admin-catalog,auto-advance}`, `unit/notification-links`, config and role-matrix extensions, `component/engagement-ui`, admin and header component tests, E2E J4 completed and a menu-editing journey, E2E setup
+- **Docs:** `DEMO_GUIDE.md` (new); API spec (§2, §7, §9, §10); architecture (§4, §10, §12, §16); threat model; testing; plan; PRD notes; README; review log; `.env.example`; this report
+
+### 3. Commands executed (clean clone of `feature/notifications-reviews` at `228c873`, fresh `coogcrave_dev` and `coogcrave_test` databases, 2026-10-11)
+
+| Command | Result |
+|---|---|
+| `pnpm install --frozen-lockfile` | ✅ exit 0 |
+| `pnpm verify` (tracked-env, format, lint, typecheck, drift, coverage, build) | ✅ exit 0 |
+| ↳ `pnpm test:coverage` | ✅ 38 files, **474/474 tests passed**. Coverage 96.3% statements, 89.9% branches, 97.4% functions, 98.1% lines. Domain 98.5% / 97.9% branches / 100% functions; services 94.8% / 87.6% branches |
+| `pnpm db:migrate`, `pnpm db:seed`, `pnpm db:seed:demo` | ✅ migrations applied; 14 buildings, 10 cuisines, 11 restaurants, 31 items; 4 demo accounts |
+| `pnpm test:e2e` (Chromium, `CI=1`) | ✅ **32/32 passed** (16 tests × mobile + desktop), no retries |
+| `pnpm audit --audit-level=high` | ✅ pass (same accepted dev-only exception; 1 moderate) |
+| Auto-advance smoke test (production build, `DEMO_AUTO_ADVANCE=true`) | ✅ a placed order was confirmed by the loop within one tick; event recorded as `RESTAURANT_SIM` with no user |
+
+**Checkpoint** (exit criteria: J3 and the full J4 demo E2E pass; draft `DEMO_GUIDE.md`): J3 passed in 6a and still passes; J4 now runs to the end (rating, inbox, admin record); the guide is written and its script was run with the demo accounts.
+
+### 4. Tests by result
+
+- 474 Vitest tests passed, 0 failed, 0 skipped (40 more than 6a).
+- 32 E2E runs passed, 0 failed.
+- Races: 5 simultaneous ratings → one row; auto-advance vs Kitchen Console, 10 rounds → never a double move.
+- Mutation checks: 7 broken on purpose and caught (`TESTING.md` §4); one gap found this way and closed; one survivor kept as defense in depth.
+
+### 5. Engineering risks remaining
+
+- **Opening hours can't be edited in the app.** A demo has to run during sample hours (Burger Joint: weekdays 10:30 AM–9 PM, weekends 11 AM–7 PM) or with another open restaurant. If the demo slot is late at night this needs a decision.
+- **The unread badge updates on navigation**, not live.
+- **Sign-in rate limit during rehearsals:** 10 sign-ins per account per 15 minutes; the guide says to keep windows signed in.
+- **Auto-advance runs in every server process** when on: safe (compare-and-set) but redundant if several instances run. It's a rehearsal tool, off by default and refused in production.
+- Mobile header now has six items and wraps to two rows (Phase 7).
+
+### 6. Ready for review?
+
+**Yes.** All Phase 6b tasks are done; Phase 6's exit criteria (J3, full J4, demo guide) pass from a clean clone with fresh databases.
+
+### 7. What should happen next
+
+1. Review the branch, mainly `src/server/services/reviews.ts`, `admin-catalog.ts`, `src/server/demo/auto-advance.ts`, and `docs/DEMO_GUIDE.md`.
+2. Decide whether the demo needs editable opening hours (see risk 1).
+3. Push `feature/notifications-reviews` and open a PR to `main` so CI runs.
+4. On approval and merge: Phase 7 (UI refinement and reliability).
 
 ---
 

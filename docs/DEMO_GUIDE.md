@@ -78,7 +78,8 @@ The demo tells one story from three sides: a student orders food, an admin plays
 | "Restaurant isn't taking orders right now" | Outside sample hours, or someone pressed "Stop taking orders". Check **Admin → Restaurants**, or pick an open restaurant. |
 | No offer in the courier window | The courier is offline (press **Go online**), or the order isn't ready yet (check **Kitchen**). The offer list refreshes every 10 seconds. |
 | The admin "Approve" button is missing | The applicant was already approved: reset the demo. |
-| "Too many requests" | Rate limits protect sign-in and ordering. Wait a minute and try again. |
+| "Too many requests" when signing in | Each account can sign in 10 times per 15 minutes (it protects real accounts). Rehearsing many times in a row can hit it: keep the three windows signed in rather than signing in again, or wait. |
+| "Too many requests" elsewhere | Ordering and other actions have per-minute limits. Wait a minute and try again. |
 | Signed in as the wrong person | Each window keeps its own sign-in only if it's a separate private window or browser. |
 
 ---
