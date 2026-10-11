@@ -67,14 +67,12 @@ describe("schema constraints (as the app role)", () => {
       });
       await db.insert(schema.orders).values(values);
       await expectPgError(
-        db
-          .insert(schema.orders)
-          .values({
-            ...values,
-            orderNumber: "CC-TAMPER1",
-            idempotencyKey: crypto.randomUUID(),
-            totalCents: 1,
-          }),
+        db.insert(schema.orders).values({
+          ...values,
+          orderNumber: "CC-TAMPER1",
+          idempotencyKey: crypto.randomUUID(),
+          totalCents: 1,
+        }),
         { code: PG.checkViolation, constraint: "orders_total_is_sum" },
       );
     });
@@ -447,14 +445,12 @@ describe("schema constraints (as the app role)", () => {
           .values({ orderId: order!.id, toStatus: "PLACED", actorType: "CUSTOMER" }),
         { code: PG.checkViolation, constraint: "order_status_events_actor_user" },
       );
-      await db
-        .insert(schema.orderStatusEvents)
-        .values({
-          orderId: order!.id,
-          fromStatus: "PLACED",
-          toStatus: "CONFIRMED",
-          actorType: "RESTAURANT_SIM",
-        });
+      await db.insert(schema.orderStatusEvents).values({
+        orderId: order!.id,
+        fromStatus: "PLACED",
+        toStatus: "CONFIRMED",
+        actorType: "RESTAURANT_SIM",
+      });
     });
   });
 

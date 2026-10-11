@@ -38,7 +38,6 @@ export default defineConfig({
       },
       {
         ...shared,
-        plugins: [react()],
         test: {
           name: "component",
           environment: "jsdom",

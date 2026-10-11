@@ -4,3 +4,4 @@ process.env.APP_ENV = "test";
 process.env.APP_URL = "http://localhost:3000";
 process.env.DATABASE_URL = "postgresql://unit:unit@127.0.0.1:1/unit_tests_do_not_connect";
 process.env.LOG_LEVEL = "silent";
+process.env.BETTER_AUTH_SECRET = "unit-test-secret-0123456789-abcdefghijklmnop";

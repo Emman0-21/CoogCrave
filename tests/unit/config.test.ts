@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { ConfigError, parseConfig } from "@/server/config";
+import { ConfigError, LOCAL_DEV_AUTH_SECRET, parseConfig } from "@/server/config";
 
 const valid = {
   APP_ENV: "development",
   APP_URL: "http://localhost:3000",
   DATABASE_URL: "postgresql://coogcrave_app:secret-pw@localhost:5432/coogcrave_dev",
+  BETTER_AUTH_SECRET: LOCAL_DEV_AUTH_SECRET,
 };
 
 describe("parseConfig", () => {
@@ -25,7 +26,12 @@ describe("parseConfig", () => {
   it("names every missing variable", () => {
     const error = captureConfigError({});
     expect(error.problems).toEqual(
-      expect.arrayContaining(["APP_ENV is required", "APP_URL is required", "DATABASE_URL is required"]),
+      expect.arrayContaining([
+        "APP_ENV is required",
+        "APP_URL is required",
+        "DATABASE_URL is required",
+        "BETTER_AUTH_SECRET is required",
+      ]),
     );
   });
 
@@ -41,16 +47,44 @@ describe("parseConfig", () => {
     expect(captureConfigError({ ...valid, DB_POOL_MAX: "500" }).problems[0]).toMatch(/^DB_POOL_MAX /);
   });
 
-  it("requires https for deployed environments", () => {
-    const error = captureConfigError({
-      ...valid,
-      APP_ENV: "production",
-      APP_URL: "http://coogcrave.example",
-    });
-    expect(error.problems).toEqual(["APP_URL must use https in deployed environments"]);
+  it("requires https, a real secret, and a real mail provider in deployed environments", () => {
+    const deployed = { ...valid, APP_ENV: "production", APP_URL: "http://coogcrave.example" };
+    expect(captureConfigError(deployed).problems).toEqual([
+      "APP_URL must use https in deployed environments",
+      "BETTER_AUTH_SECRET is the local placeholder; generate a real secret for deployed environments",
+      "MAIL_TRANSPORT is 'file', which can't deliver email; deployed environments need a real mail provider (planned for Phase 8)",
+    ]);
+    // Preview deployments get the same rules; a real secret and https leave only the mail gap.
+    const preview = {
+      ...deployed,
+      APP_ENV: "preview",
+      APP_URL: "https://preview.example",
+      BETTER_AUTH_SECRET: "x".repeat(40),
+    };
+    expect(captureConfigError(preview).problems).toEqual([expect.stringMatching(/^MAIL_TRANSPORT /)]);
+  });
+
+  it("requires an auth secret of at least 32 characters", () => {
+    expect(captureConfigError({ ...valid, BETTER_AUTH_SECRET: "too-short" }).problems).toEqual([
+      "BETTER_AUTH_SECRET must be at least 32 characters",
+    ]);
+  });
+
+  it("parses the email domain allowlist, defaulting to uh.edu", () => {
+    expect(parseConfig(valid).ALLOWED_EMAIL_DOMAINS).toEqual(["uh.edu"]);
     expect(
-      parseConfig({ ...valid, APP_ENV: "production", APP_URL: "https://coogcrave.example" }).appOrigin,
-    ).toBe("https://coogcrave.example");
+      parseConfig({ ...valid, ALLOWED_EMAIL_DOMAINS: " UH.edu, coogcrave.test ,," }).ALLOWED_EMAIL_DOMAINS,
+    ).toEqual(["uh.edu", "coogcrave.test"]);
+    expect(
+      captureConfigError({ ...valid, ALLOWED_EMAIL_DOMAINS: "uh.edu, not a domain" }).problems[0],
+    ).toMatch(/^ALLOWED_EMAIL_DOMAINS/);
+    expect(captureConfigError({ ...valid, ALLOWED_EMAIL_DOMAINS: " , " }).problems[0]).toMatch(
+      /at least one domain/,
+    );
+  });
+
+  it("defaults mail to the local file outbox", () => {
+    expect(parseConfig(valid)).toMatchObject({ MAIL_TRANSPORT: "file", MAIL_OUTBOX_DIR: ".data/mail" });
   });
 
   it("derives the origin without path or trailing slash", () => {
