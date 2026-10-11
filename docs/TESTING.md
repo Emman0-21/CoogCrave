@@ -47,7 +47,7 @@ Most of CoogCrave's correctness guarantees live in Postgres: CHECK constraints o
 | Client-supplied `role`/`suspendedAt`/`emailVerified` ignored or refused at sign-up | `integration/auth-security.test.ts` | AUTH-6 · T-02 |
 | Domain allowlist incl. subdomains and look-alikes; password policy; name rules | `integration/auth-security.test.ts`, `unit/domain-auth-rules.test.ts`, `unit/auth-support.test.ts` | AUTH-1, 2 · T-19 |
 | Identical answers for existing/new emails at sign-up, sign-in, and reset | `integration/auth-security.test.ts` | T-15 |
-| Reset: single use, signs out other sessions, made-up tokens refused | `integration/auth-security.test.ts` | AUTH-5 · T-17 |
+| Reset: single use, signs out other sessions, made-up tokens refused. Change password: needs a session and the current password, applies the policy | `integration/auth-security.test.ts` | AUTH-5 · T-17 |
 | Suspended accounts can't sign in | `integration/auth-security.test.ts` | AUTH-7 · T-07 |
 | Off-site redirects refused (verify, reset); `safeNextPath` | `integration/auth-security.test.ts`, `unit/domain-auth-rules.test.ts` | T-18 |
 | `/api/auth` request hygiene: cross-origin, form bodies, oversize, disabled endpoints, request IDs, no tokens in logs | `integration/auth-security.test.ts`, `unit/auth-route-handler.test.ts` | T-20, T-24, T-27 |
@@ -68,6 +68,7 @@ Most of CoogCrave's correctness guarantees live in Postgres: CHECK constraints o
 A passing test only matters if it can fail. During Phase 3 these were broken on purpose, the named test failed, and the code was restored:
 - a `CHECK` constraint dropped from the test database → `schema-constraints.test.ts`
 - the audit cursor switched back to millisecond precision → the pagination test in `profile-and-audit.test.ts`
+- the password policy removed from `/change-password` → the change-password test in `auth-security.test.ts`
 
 And one real bug the tests caught on their own: Better Auth switches its origin checks off under `NODE_ENV=test`, so the open-redirect tests failed until the checks were pinned on.
 

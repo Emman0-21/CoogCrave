@@ -193,6 +193,42 @@ describe("authentication security controls", () => {
     });
   });
 
+  describe("change password (enabled, no UI yet)", () => {
+    it("needs a session and the current password, and applies the password policy", async () => {
+      const email = uniqueEmail();
+      const jar = await signedInUser(email);
+
+      const anonymous = await auth("/change-password", {
+        body: { currentPassword: STRONG_PASSWORD, newPassword: OTHER_STRONG_PASSWORD },
+      });
+      expect(anonymous.status).toBe(401);
+
+      const weak = await auth("/change-password", {
+        body: { currentPassword: STRONG_PASSWORD, newPassword: "password1234" },
+        jar,
+      });
+      expect(weak.status).toBe(400);
+      expect((await bodyOf(weak)).code).toBe("PASSWORD_TOO_WEAK");
+
+      const wrongCurrent = await auth("/change-password", {
+        body: { currentPassword: "not-my-password-at-all", newPassword: OTHER_STRONG_PASSWORD },
+        jar,
+      });
+      expect(wrongCurrent.status).toBe(400);
+
+      // Nothing above changed the password.
+      expect((await signIn(email, STRONG_PASSWORD)).response.status).toBe(200);
+
+      const ok = await auth("/change-password", {
+        body: { currentPassword: STRONG_PASSWORD, newPassword: OTHER_STRONG_PASSWORD },
+        jar,
+      });
+      expect(ok.status).toBe(200);
+      expect((await signIn(email, STRONG_PASSWORD)).response.status).toBe(401);
+      expect((await signIn(email, OTHER_STRONG_PASSWORD)).response.status).toBe(200);
+    });
+  });
+
   describe("suspended accounts (PRD AUTH-7)", () => {
     it("can't sign in, and a wrong password still gets the generic answer", async () => {
       const email = uniqueEmail();

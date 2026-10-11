@@ -101,6 +101,15 @@ describe("auth rate-limit rules", () => {
     ).toEqual(["auth.verify_resend.ip", "auth.verify_resend.email"]);
   });
 
+  it("limits password changes and token-based resets per IP", () => {
+    expect(authRateChecks("POST", "/reset-password", { token: "t", newPassword: "x" }, ip)).toEqual([
+      { rule: AUTH_RATE_RULES.resetPasswordIp, subject: ip },
+    ]);
+    expect(authRateChecks("POST", "/change-password", { newPassword: "x" }, ip)).toEqual([
+      { rule: AUTH_RATE_RULES.changePasswordIp, subject: ip },
+    ]);
+  });
+
   it("skips per-email limits when no email was sent, and falls back to a general per-IP limit", () => {
     expect(authRateChecks("POST", "/sign-in/email", {}, ip)).toEqual([
       { rule: AUTH_RATE_RULES.signInIp, subject: ip },
