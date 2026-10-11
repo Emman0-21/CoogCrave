@@ -2,7 +2,7 @@
   "name": "coogcrave",
   "version": "0.1.0",
   "private": true,
-  "description": "CoogCrave \u2014 student-powered campus food delivery for the University of Houston (independent hackathon project).",
+  "description": "CoogCrave — student-powered campus food delivery for the University of Houston (independent hackathon project).",
   "type": "module",
   "engines": {
     "node": ">=22.12.0 <23"
@@ -52,6 +52,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
     "@fontsource-variable/archivo": "5.3.0",
     "@fontsource-variable/atkinson-hyperlegible-next": "5.3.0",
     "@playwright/test": "1.64.0",
