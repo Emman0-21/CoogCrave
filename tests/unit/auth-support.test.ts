@@ -86,6 +86,12 @@ describe("auth rate-limit rules", () => {
     ]);
   });
 
+  it("limits sign-ups by IP and by email, so an owner can't be flooded with notices", () => {
+    expect(
+      authRateChecks("POST", "/sign-up/email", { email: "a@uh.edu" }, ip).map((c) => c.rule.name),
+    ).toEqual(["auth.sign_up.ip", "auth.sign_up.email"]);
+  });
+
   it("limits reset and verification emails per address", () => {
     expect(
       authRateChecks("POST", "/request-password-reset", { email: "a@uh.edu" }, ip).map((c) => c.rule.name),

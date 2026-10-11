@@ -317,6 +317,19 @@ describe("authentication security controls", () => {
       expect((await signUp(uniqueEmail(), STRONG_PASSWORD, {}, { ip: "192.0.2.51" })).status).toBe(200);
     });
 
+    it("caps 'someone tried to sign up' notices to an existing owner, from any IP", async () => {
+      const email = uniqueEmail();
+      await registerVerified(email);
+      const before = (await mailTo(email)).length;
+      const statuses: number[] = [];
+      for (let i = 0; i < 6; i++) {
+        statuses.push((await signUp(email, OTHER_STRONG_PASSWORD, {}, { ip: `192.0.2.${100 + i}` })).status);
+      }
+      // The first counted attempt was the original sign-up, so 4 more succeed before the cap.
+      expect(statuses).toEqual([200, 200, 200, 200, 429, 429]);
+      expect((await mailTo(email)).length).toBe(before + 4);
+    });
+
     it("limits password-reset emails per address", async () => {
       const email = uniqueEmail();
       await registerVerified(email);

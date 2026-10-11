@@ -11,6 +11,8 @@ export const AUTH_RATE_RULES = {
   signInIp: { name: "auth.sign_in.ip", limit: 30, windowSeconds: 60 },
   signInEmail: { name: "auth.sign_in.email", limit: 10, windowSeconds: 15 * 60 },
   signUpIp: { name: "auth.sign_up.ip", limit: 20, windowSeconds: 60 * 60 },
+  // Sign-up to an existing address emails its owner; this caps that mail, whether or not the account exists.
+  signUpEmail: { name: "auth.sign_up.email", limit: 5, windowSeconds: 60 * 60 },
   resetRequestIp: { name: "auth.reset_request.ip", limit: 20, windowSeconds: 60 * 60 },
   resetRequestEmail: { name: "auth.reset_request.email", limit: 3, windowSeconds: 60 * 60 },
   verifyResendIp: { name: "auth.verify_resend.ip", limit: 20, windowSeconds: 60 * 60 },
@@ -42,7 +44,7 @@ export function authRateChecks(method: string, authPath: string, body: unknown, 
       case "/sign-in/email":
         return [byIp(AUTH_RATE_RULES.signInIp), ...byEmail(AUTH_RATE_RULES.signInEmail)];
       case "/sign-up/email":
-        return [byIp(AUTH_RATE_RULES.signUpIp)];
+        return [byIp(AUTH_RATE_RULES.signUpIp), ...byEmail(AUTH_RATE_RULES.signUpEmail)];
       case "/request-password-reset":
         return [byIp(AUTH_RATE_RULES.resetRequestIp), ...byEmail(AUTH_RATE_RULES.resetRequestEmail)];
       case "/send-verification-email":
