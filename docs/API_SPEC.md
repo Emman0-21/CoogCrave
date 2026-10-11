@@ -1,6 +1,6 @@
 # CoogCrave — API Specification (v1)
 
-> **Status:** Approved at Phase 1; updated through Phase 3 · **Last updated:** 2026-10-11
+> **Status:** Approved at Phase 1; updated through Phase 4 · **Last updated:** 2026-10-11
 > Contracts are designed before implementation. Endpoints marked **(implemented)** match the code and its tests; the rest are the designed contract for later phases. Zod schemas in `src/shared/schemas` and the route files are the source of truth for implemented endpoints.
 
 ---
@@ -67,7 +67,7 @@
 | 409 | `ALREADY_REVIEWED`, `COURIER_APPLICATION_EXISTS` | Duplicate creation |
 | 413 | `PAYLOAD_TOO_LARGE` | Body > 16 KB |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | Mutation without JSON content type |
-| 422 | `CART_EMPTY`, `ITEM_UNAVAILABLE`, `RESTAURANT_CLOSED`, `INVALID_OPTIONS`, `BELOW_MINIMUM_SUBTOTAL`, `INVALID_LOCATION`, `TIP_OUT_OF_RANGE`, `CANNOT_ACCEPT_OWN_ORDER`, `IDEMPOTENCY_KEY_REUSED`, `REASON_REQUIRED`, `NOT_REVIEWABLE` | Business rule violations |
+| 422 | `CART_FULL` (more than 25 distinct lines), `CART_EMPTY`, `ITEM_UNAVAILABLE`, `RESTAURANT_CLOSED`, `INVALID_OPTIONS`, `BELOW_MINIMUM_SUBTOTAL`, `INVALID_LOCATION`, `TIP_OUT_OF_RANGE`, `CANNOT_ACCEPT_OWN_ORDER`, `IDEMPOTENCY_KEY_REUSED`, `REASON_REQUIRED`, `NOT_REVIEWABLE` | Business rule violations |
 | 429 | `RATE_LIMITED` | With `Retry-After` header (seconds) |
 | 500 | `INTERNAL_ERROR` | Unexpected; details only in logs |
 
@@ -89,9 +89,9 @@ Fixed-window counters in Postgres, shared by all server instances (`src/server/r
 | Other `/api/auth/*` | 120 / min per IP | Implemented |
 | `PATCH /me` | 30 / min per user | Implemented |
 | Everything under `/api/v1` (default) | 300 / min per IP | Implemented |
-| `POST /orders` | 10 / min per user | Phase 4 |
-| `POST /orders/{id}/transitions` | 60 / min per user | Phase 4–5 |
-| Cart mutations | 120 / min per user | Phase 4 |
+| `POST /orders` | 10 / min per user | Implemented |
+| `POST /orders/{id}/transitions` | 60 / min per user | Implemented |
+| Cart mutations and `POST /checkout/quote` | 120 / min per user | Implemented |
 | Reviews | 10 / hour per user | Phase 6 |
 
 `/api/health` is exempt (load-balancer polling; it runs only `select 1`).
@@ -100,7 +100,7 @@ Fixed-window counters in Postgres, shared by all server instances (`src/server/r
 
 ## 2. Endpoint index
 
-Implemented as of Phase 3: `GET /api/health`, `/api/auth/*`, `GET /me`, `PATCH /me`, `GET /locations`, `GET /admin/audit-events`. The rest is the designed contract.
+Implemented as of Phase 4: `GET /api/health`, `/api/auth/*`, `GET/PATCH /me`, `GET /locations`, `GET /admin/audit-events`, and everything in §5–7 except `POST /orders/{id}/review` (Phase 6). The rest is the designed contract.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
@@ -205,111 +205,107 @@ Served by Better Auth behind our wrapper (`src/server/auth/route-handler.ts`), w
 
 ---
 
-## 5. Catalog (public)
+## 5. Catalog (public, implemented)
 
 ### `GET /restaurants`
-- **Query:** `q?` (≤ 60 chars, matches restaurant and menu item names), `cuisine?` (slug, repeatable), `openNow?` (`true`), `limit`, `cursor`.
-- **Response 200:** list of
+- **Query (strict):** `q?` (≤ 60 chars; matches restaurant names, descriptions, and menu item names, case-insensitive, `%` and `_` matched literally), `cuisine?` (slug, repeatable up to 10; any of them), `openNow?` (`true` → only restaurants that can take an order now). Unknown parameters → `400`.
+- **Response 200:** `{ "data": RestaurantSummary[] }`, restaurants that can take orders first, alphabetical within each group. **Not paginated:** a campus has tens of restaurants; revisit past ~100.
 ```json
 {
-  "id": "…", "slug": "cougar-grill", "name": "Cougar Grill",
-  "imagePath": "/images/sample/grill.webp",
+  "id": "…", "slug": "the-burger-joint", "name": "The Burger Joint", "description": "…",
   "cuisines": [{ "slug": "burgers", "name": "Burgers" }],
-  "location": { "id": "…", "shortName": "Student Center South" },
-  "isOpenNow": true, "isAcceptingOrders": true,
-  "nextOpenAt": null, "isSampleData": true
+  "location": { "id": "…", "name": "Retail, Auxiliary, and Dining (RAD) Center", "shortName": "RAD Center" },
+  "isOpenNow": true, "closesAtMinute": 1260, "nextOpenAt": null,
+  "isAcceptingOrders": true, "canOrder": true,
+  "isSampleData": true, "matchingItems": ["Double cheeseburger"]
 }
 ```
-`isOpenNow` is computed server-side from hours in the campus time zone.
+- `isOpenNow` comes from weekly hours in the campus time zone; `canOrder` = open **and** accepting orders. `closesAtMinute` is campus wall-clock minutes (0 = midnight). `nextOpenAt` is an ISO instant within the next week, or `null`. `matchingItems` lists up to three menu items that matched `q`.
+- No images in the MVP (no `imagePath`); the UI never shows restaurant logos (THREAT_MODEL T-32).
 
 ### `GET /restaurants/{slug}`
-- **Response 200:** summary fields plus `description`, `pickupNotes`, `hours: [{ dayOfWeek, opensAtMinute, closesAtMinute }]`, and
-```json
-"menu": [{
-  "categoryId": "…", "name": "Burgers",
-  "items": [{
-    "id": "…", "name": "Classic Burger", "description": "…", "priceCents": 899,
-    "imagePath": null, "isAvailable": true,
-    "optionGroups": [{
-      "id": "…", "name": "Add-ons", "minSelect": 0, "maxSelect": 3,
-      "options": [{ "id": "…", "name": "Bacon", "priceDeltaCents": 150, "isAvailable": true }]
-    }]
-  }]
-}]
-```
-- **Errors:** `404` (unknown or soft-deleted).
+- **Response 200:** RestaurantSummary plus `pickupNotes`, `timeZone`, `hours: [{ dayOfWeek, opensAtMinute, closesAtMinute }]`, and `menu: [{ categoryId, name, items: [{ id, name, description, priceCents, isAvailable, optionGroups: [{ id, name, minSelect, maxSelect, options: [{ id, name, priceDeltaCents, isAvailable }] }] }] }]`. Unavailable items and options are listed (shown disabled); deleted ones are not.
+- **Errors:** `404` (unknown, malformed, or soft-deleted).
 
-### `GET /cuisines` → `[{ "slug", "name" }]`
+### `GET /cuisines` → `{ "data": [{ "slug", "name" }] }`, only cuisines at least one active restaurant has
 ### `GET /locations` (implemented) → `{ "data": [{ "id", "name", "shortName", "description" }] }`, active drop points in display order
 
 ---
 
-## 6. Cart — user
+## 6. Cart — user (implemented)
 
-All cart responses return the **CartView**, with prices computed live:
+All cart responses return the **CartView**, with prices computed live from the current menu (carts store no prices):
 
 ```json
 {
-  "restaurant": { "id": "…", "slug": "…", "name": "…", "isOpenNow": true } | null,
+  "restaurant": { "id": "…", "slug": "…", "name": "…", "isOpenNow": true, "isAcceptingOrders": true } | null,
   "items": [{
-    "id": "…", "menuItemId": "…", "name": "Classic Burger", "quantity": 2,
+    "id": "…", "menuItemId": "…", "name": "Double cheeseburger", "quantity": 2,
     "unitPriceCents": 899, "optionsTotalCents": 150, "lineTotalCents": 2098,
     "options": [{ "id": "…", "group": "Add-ons", "name": "Bacon", "priceDeltaCents": 150 }],
     "specialInstructions": "No onions",
-    "problems": []             // e.g. ["ITEM_UNAVAILABLE"] — blocks checkout
+    "problems": []             // "ITEM_UNAVAILABLE" | "INVALID_OPTIONS"
   }],
+  "itemCount": 2,
   "subtotalCents": 2098,
+  "minSubtotalCents": 500,
   "canCheckout": true,
-  "problems": []               // e.g. ["RESTAURANT_CLOSED", "BELOW_MINIMUM_SUBTOTAL"]
+  "problems": []               // "RESTAURANT_CLOSED" | "ITEM_PROBLEMS" | "BELOW_MINIMUM_SUBTOTAL"
 }
 ```
 
-### `GET /cart`
-- **Response 200:** CartView (empty cart → `restaurant: null, items: []`).
+An empty cart is `{ restaurant: null, items: [], itemCount: 0, subtotalCents: 0, minSubtotalCents: null, canCheckout: false, problems: [] }`; removing the last line deletes the cart.
+
+### `GET /cart` → **200** CartView.
 
 ### `POST /cart/items`
-- **Request:** `{ "menuItemId": uuid, "quantity": 1–20, "optionIds": uuid[] (≤ 20), "specialInstructions"?: string ≤ 140, "replaceCart"?: boolean }`
+- **Request (strict):** `{ "menuItemId": uuid, "quantity": 1–20, "optionIds"?: uuid[] (≤ 20), "specialInstructions"?: string ≤ 140 (no `< >` or control characters; blank → null), "replaceCart"?: boolean }`. Any other field (e.g. a price) → `400`.
 - **Response 201:** CartView.
-- **Errors:** `404` item; `409 CART_RESTAURANT_CONFLICT` (cart holds another restaurant and `replaceCart` not true); `422 ITEM_UNAVAILABLE`, `INVALID_OPTIONS` (option not on this item, unavailable, or group min/max violated).
-- **Side effects:** creates cart if absent; replaces cart contents when `replaceCart: true`. Identical item + identical options merges quantities (capped at 20).
+- **Errors:** `404` item (unknown or deleted); `409 CART_RESTAURANT_CONFLICT` with `details.currentRestaurant { name, slug }` (cart holds another restaurant and `replaceCart` isn't true); `422 ITEM_UNAVAILABLE`; `422 INVALID_OPTIONS` (option not on this item, unavailable, duplicated, or a group's min/max violated; `details` lists every problem with a message); `422 CART_FULL`.
+- **Side effects:** creates the cart (concurrent first adds are safe: `ON CONFLICT` + row lock); replaces it when `replaceCart: true`. An identical item with identical options and note merges quantities (capped at 20). Adding is allowed while the restaurant is closed (the cart reports `RESTAURANT_CLOSED`); the UI only offers it while open.
 
 ### `PATCH /cart/items/{cartItemId}`
-- **Request:** `{ "quantity": 1–20 }` → **200** CartView. **Errors:** `404` (not in caller's cart).
+- **Request:** `{ "quantity": 1–20 }` → **200** CartView. **Errors:** `404` (not in the caller's cart).
 
-### `DELETE /cart/items/{cartItemId}` → **200** CartView · `DELETE /cart` → **200** empty CartView.
+### `DELETE /cart/items/{cartItemId}` → **200** CartView (`404` if not the caller's) · `DELETE /cart` → **200** empty CartView.
 
 ---
 
 ## 7. Checkout and orders
 
-### `POST /checkout/quote` — user
+### `POST /checkout/quote` — user (implemented)
 - **Request:** `{ "deliveryLocationId": uuid, "tipCents": 0–max }`
 - **Response 200:**
 ```json
 {
   "lines": [ /* CartView items */ ],
+  "restaurant": { /* CartView restaurant */ },
   "subtotalCents": 2098, "deliveryFeeCents": 249, "serviceFeeCents": 105,
   "taxCents": 182, "tipCents": 300, "totalCents": 2934,
-  "taxIsSample": true, "paymentMode": "DEMO",
+  "taxIsSample": true, "paymentMode": "DEMO", "maxTipCents": 5000,
   "canPlaceOrder": true, "problems": []
 }
 ```
 - **Errors:** `422 CART_EMPTY`, `INVALID_LOCATION`, `TIP_OUT_OF_RANGE`. Item/restaurant problems are reported in `problems` (not as errors) so the page can show them inline.
 - **Side effects:** none.
 
-### `POST /orders` — user
-- **Headers:** `Idempotency-Key: <uuid v4>` (required; generated once per checkout attempt and reused on retries).
+### `POST /orders` — user (implemented)
+- **Headers:** `Idempotency-Key: <uuid>` (required; generated once per checkout attempt and reused on retries).
 - **Request:** `{ "deliveryLocationId": uuid, "deliveryInstructions"?: string ≤ 280, "tipCents": int, "expectedTotalCents": int }`
 - **Response 201:** OrderDetail (customer projection, §7.1). On idempotent replay: **200** with the original order and header `Idempotent-Replayed: true`.
 - **Errors:** `400 IDEMPOTENCY_KEY_REQUIRED`; `409 PRICE_CHANGED` (`details.quote`); `422 CART_EMPTY`, `ITEM_UNAVAILABLE`, `RESTAURANT_CLOSED`, `BELOW_MINIMUM_SUBTOTAL`, `INVALID_LOCATION`, `TIP_OUT_OF_RANGE`, `IDEMPOTENCY_KEY_REUSED`; `429`.
-- **Side effects (one transaction):** order + item/option snapshots; status event (`→ PLACED`, actor `CUSTOMER`); `payments` row (`DEMO`, `AUTHORIZED`); notification `ORDER_PLACED`; cart cleared. If `DEMO_AUTO_ADVANCE` is on (non-production only), T1 and T3 are applied immediately afterwards with actor `RESTAURANT_SIM` and reason `"demo auto-advance"`.
+- **Side effects (one transaction, cart row locked):** order + item/option snapshots; status event (`→ PLACED`, actor `CUSTOMER`); `payments` row (`DEMO`, `AUTHORIZED`, reference `demo_pi_…`); notification `ORDER_PLACED`; cart deleted. Order numbers are `CC-` plus 6 Crockford base-32 characters (no I, L, O, U), random, retried on collision inside a savepoint.
+- **Idempotency:** the request hash is SHA-256 of `[deliveryLocationId, deliveryInstructions, tipCents, expectedTotalCents]`. A failed attempt stores nothing, so the same key can be retried after fixing the problem. Simultaneous identical requests: the cart lock serializes them and later ones replay the first order (tested with 5 at once).
+- **Not yet:** `DEMO_AUTO_ADVANCE` (applying T1/T3 automatically after placement) arrives with the demo tooling in Phase 6.
 - **Never trusted from the client:** prices, fees, tax, totals, restaurant, items (taken from the server-side cart).
 
-### `GET /orders` — user
-- **Query:** `scope=active|past` (default all), `limit`, `cursor`.
-- **Response 200:** list of `{ "id", "orderNumber", "restaurantName", "status", "totalCents", "itemCount", "createdAt" }` — **only the caller's own orders**.
+### `GET /orders` — user (implemented)
+- **Query (strict):** `scope=active|past` (default all), `limit` 1–50 (default 20), `cursor`.
+- **Response 200:** `{ "data": [{ "id", "orderNumber", "restaurantName", "status", "totalCents", "itemCount", "createdAt" }], "nextCursor" }`, newest first — **only the caller's own orders**. Same microsecond keyset cursor as the audit log.
 
-### `GET /orders/{orderId}` — user
+### `GET /orders/{orderId}` — user (implemented: customer projection)
+
+**Phase 4:** only the customer who placed the order can see it; everyone else, including admins and couriers, gets `404`. The courier projection arrives in Phase 5 and the admin projection in Phase 6. The customer projection's `timeline` has `{ status, at, actorType }` (no actor identities or staff reasons); `payment` is `{ mode: "DEMO", status }`; `courier` is absent until couriers exist.
 
 #### 7.1 Projections
 
@@ -332,9 +328,11 @@ The service picks the projection from the viewer's relationship to the order; an
 
 Couriers who are not assigned see an order only through `/courier/offers` (offer projection). After they release or the assignment ends + 24 h, `GET /orders/{id}` returns the courier projection without instructions, and later `404`.
 
-### `POST /orders/{orderId}/transitions` — user
+### `POST /orders/{orderId}/transitions` — user (implemented for customers)
 
 The single endpoint for every status change (see `ARCHITECTURE.md` §6, transitions T1–T11).
+
+**Phase 4:** the only caller relationship is the order's customer, so the only possible move is cancelling a `PLACED` order (T2). Non-owners get `404`. `actingAs` isn't accepted yet (the strict schema answers `400`); it's added with the Kitchen Console in Phase 6. The service behind it (`transitionOrder`) already applies T1–T4 and T6 with compare-and-set; courier moves (T5, T7–T11) are refused until assignments exist (Phase 5).
 
 - **Request:** `{ "toStatus": OrderStatus, "reason"?: string ≤ 300, "actingAs"?: "RESTAURANT_SIM", "expectedVersion"?: int }`
   - `actingAs: "RESTAURANT_SIM"` is accepted **only** from admins (Kitchen Console). Otherwise the actor type is derived from the caller's relationship: owner → `CUSTOMER`, courier → `COURIER`, admin → `ADMIN`.
@@ -356,7 +354,7 @@ Examples:
 | Kitchen Console confirm | `{ "toStatus": "CONFIRMED", "actingAs": "RESTAURANT_SIM" }` |
 | Admin resolves problem | `{ "toStatus": "CANCELLED", "reason": "Restaurant out of stock" }` |
 
-### `POST /orders/{orderId}/review` — user
+### `POST /orders/{orderId}/review` — user (Phase 6)
 - **Request:** `{ "rating": 1–5, "comment"?: string ≤ 500 }`
 - **Response 201:** `{ "id", "rating", "comment", "createdAt" }`
 - **Errors:** `404` (not the caller's order); `409 ALREADY_REVIEWED`; `422 NOT_REVIEWABLE` (status ≠ `DELIVERED`).

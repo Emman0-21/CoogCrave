@@ -8,6 +8,8 @@ export interface ApiError {
   message: string;
   /** Seconds to wait, from Retry-After on 429 responses. */
   retryAfterSeconds?: number;
+  /** Extra data some errors carry (field errors, or a fresh quote for PRICE_CHANGED). */
+  details?: unknown;
 }
 
 export type ApiResult<T> =
@@ -20,13 +22,16 @@ export const NETWORK_ERROR: ApiError = {
 
 export async function requestJson<T = unknown>(
   url: string,
-  init: { method?: string; body?: unknown } = {},
+  init: { method?: string; body?: unknown; headers?: Record<string, string> } = {},
 ): Promise<ApiResult<T>> {
   let response: Response;
   try {
     response = await fetch(url, {
       method: init.method ?? (init.body === undefined ? "GET" : "POST"),
-      headers: init.body === undefined ? undefined : { "content-type": "application/json" },
+      headers: {
+        ...(init.body === undefined ? {} : { "content-type": "application/json" }),
+        ...init.headers,
+      },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
       credentials: "same-origin",
     });
@@ -44,7 +49,12 @@ export async function requestJson<T = unknown>(
 
   if (response.ok) return { ok: true, status: response.status, data: payload as T };
 
-  const raw = (payload ?? {}) as { error?: Partial<ApiError>; code?: string; message?: string };
+  const raw = (payload ?? {}) as {
+    error?: Partial<ApiError>;
+    code?: string;
+    message?: string;
+    details?: unknown;
+  };
   const source = raw.error ?? raw;
   const retryAfter = Number(response.headers.get("retry-after"));
   return {
@@ -54,6 +64,7 @@ export async function requestJson<T = unknown>(
       code: source.code ?? `HTTP_${response.status}`,
       message: source.message ?? "Something went wrong. Try again in a moment.",
       ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfterSeconds: retryAfter } : {}),
+      ...(source.details !== undefined && source.details !== null ? { details: source.details } : {}),
     },
   };
 }

@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { expect, type Page } from "@playwright/test";
+import { type APIRequestContext, expect, type Page } from "@playwright/test";
 
 export const DEMO = {
   customer: "customer@demo.coogcrave.test",
@@ -56,4 +56,21 @@ export async function signInThroughForm(page: Page, email: string, password: str
   await page.getByLabel("UH email").fill(email);
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
+}
+
+/** A new, confirmed student account made through the real API and emailed link (not through the UI). */
+export async function createConfirmedStudent(
+  request: APIRequestContext,
+  baseURL: string,
+  label: string,
+): Promise<string> {
+  const email = uniqueStudentEmail(label);
+  const signUp = await request.post("/api/auth/sign-up/email", {
+    data: { name: "Riley Nguyen", email, password: NEW_PASSWORD, callbackURL: "/sign-in?verified=1" },
+    headers: { origin: baseURL },
+  });
+  expect(signUp.ok()).toBe(true);
+  const verify = await request.get(await linkFromLatestEmail(email, "Verify your CoogCrave email"));
+  expect(verify.ok()).toBe(true);
+  return email;
 }

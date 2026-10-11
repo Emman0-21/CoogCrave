@@ -1,6 +1,6 @@
 # CoogCrave — Threat Model
 
-> **Status:** Approved at Phase 1; control status updated after Phase 3 (§5) · **Last updated:** 2026-10-11
+> **Status:** Approved at Phase 1; control status updated after Phase 4 (§5) · **Last updated:** 2026-10-11
 > Method: assets → actors → trust boundaries → threats (STRIDE) with a mitigation **and a way to verify it**. A control without a verification is listed as unverified, not as done. Re-reviewed at the end of every phase (`CODE_REVIEW_LOG.md`).
 
 ---
@@ -111,6 +111,19 @@ Verification types: **U** unit test · **I** integration test (real DB) · **E**
 
 Status moves from **Designed** → **Implemented** (code exists) → **Verified** (its listed test or check passes). Nothing is called Verified on the strength of a library being installed.
 
+### After Phase 4
+
+| ID | Status | Evidence |
+|---|---|---|
+| T-01 IDOR on orders | **Verified** for customers | `checkout-and-orders.test.ts`: another student gets 404 for the order, its transitions, and sees an empty list; malformed IDs 404; responses carry no customer ID, email, idempotency key, request hash, or payment reference. E2E: an admin opening a student's order page gets a real 404. Mutation: dropping the ownership filter fails the test. Courier/admin projections: Phases 5–6. |
+| T-04 Customer impersonating the restaurant | **Verified** | Customer `CONFIRMED`/`READY_FOR_PICKUP`/`DELIVERED`/`PLACED` → 409; `actingAs` → 400 (not accepted until Phase 6); exhaustive state-machine unit tests. |
+| T-08 Price tampering | **Verified** | Strict schemas reject client prices (`priceCents`, `totalCents`) with 400; a wrong `expectedTotalCents` → 409 `PRICE_CHANGED` with a fresh quote and no order (mutation-checked); totals re-derived from the menu on every cart read; DB `CHECK`s on totals and line totals. |
+| T-10 Duplicate orders | **Verified** | Missing/invalid key → 400; same key + body → original order (200, `Idempotent-Replayed`); same key + different body → 422; 5 simultaneous identical requests → exactly one order and one payment (mutation: removing the in-lock replay fails it). E2E double-click places one order. |
+| T-11 Conflicting transitions | **Verified** | Deterministic race test: a held row lock makes a customer cancel and a restaurant confirm both read `PLACED`; exactly one wins and the other gets `STALE_STATE`. Removing compare-and-set fails it every run. `expectedVersion` → `STALE_STATE`. |
+| T-21 XSS via notes | **Verified** (input side) | Item notes and delivery instructions refuse `<`, `>`, and control characters; React escapes all output; no `dangerouslySetInnerHTML` (lint). |
+| T-24 Abuse | **Verified** | Order list `limit` ≤ 50, cart ≤ 25 lines, quantity ≤ 20, per-user limits on cart, quote, order, and transition endpoints (429 observed in tests before counters were reset between tests). |
+| T-32 Implied endorsement | **Verified** (labels) · copy review pending | Every restaurant row and page says "Sample menu, not affiliated"; the list intro and footer explain; no logos or images. |
+
 ### After Phase 3
 
 | ID | Status | Evidence |
@@ -153,9 +166,9 @@ Status moves from **Designed** → **Implemented** (code exists) → **Verified*
 
 ### OWASP checklist from the master prompt
 
-| Prompt checklist item | Threat IDs | Status after Phase 3 |
+| Prompt checklist item | Threat IDs | Status after Phase 4 |
 |---|---|---|
-| Broken access control | T-01 – T-07, T-12 | T-02, T-03 (Phase 3 endpoints), T-07 (request-time), T-12 verified; T-01, T-04 – T-06 arrive with orders and delivery (Phases 4–5) |
+| Broken access control | T-01 – T-07, T-12 | T-01 (customers), T-02, T-03 (all endpoints so far), T-04, T-07 (request-time), T-12 verified; T-05, T-06 arrive with delivery (Phase 5) |
 | Injection | T-22 | Verified (lint + review of Phase 3 queries) |
 | Cross-site scripting | T-21 | Verified at header/lint level; new forms render user text only through React |
 | CSRF | T-20 | Verified, including login CSRF |

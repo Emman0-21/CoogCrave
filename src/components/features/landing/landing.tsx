@@ -24,18 +24,20 @@ export function Landing({ signedIn }: { signedIn: boolean }) {
             Order from spots around campus and have it brought to your building, whether that&apos;s the
             library, your lab, or the rec, by a fellow UH student delivering between classes.
           </p>
-          {signedIn ? (
-            <p className="mt-8 max-w-[34rem] rounded-control border border-line-strong px-4 py-3">
-              Your account is ready. Ordering and deliveries open soon.
-            </p>
-          ) : (
-            <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
-              <Link href="/sign-up" className={buttonClasses("primary")}>
+          <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
+            <Link href="/restaurants" className={buttonClasses("primary")}>
+              See what&apos;s open
+            </Link>
+            {!signedIn && (
+              <Link href="/sign-up" className={buttonClasses("secondary")}>
                 Create your account
               </Link>
-              <p className="text-ink-muted">Ordering and deliveries open soon.</p>
-            </div>
-          )}
+            )}
+          </div>
+          <p className="mt-4 max-w-[34rem] text-ink-muted">
+            Demo mode: menus are samples and payments are simulated. Student couriers join in the next
+            release.
+          </p>
         </div>
 
         <OrderTicket ticket={SAMPLE_TICKET} />

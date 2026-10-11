@@ -100,3 +100,34 @@ Each entry states whether it is an **automated self-review** (performed by Claud
 | 1 | Data migration | Changing the data file alone would leave the old fictional restaurants live in any database already seeded (the seed only upserted) | Medium | Seed soft-deletes sample restaurants missing from the data file and removes unused cuisines; admin-added restaurants untouched | Integration test (mutation-checked); real run on the dev database retired all six old restaurants |
 | 2 | Accuracy | Venue names come from UH pages that change; a 2024 article listed "The Nook Café", which UH now lists as Katz Coffee | Low | Only venues on UH's current listings were used; header comment and docs say to re-check before a demo | Sources noted in `catalog-data.ts` |
 | 3 | Affiliation | Real brand names next to invented menus | Low | Generic item names, no logos, `is_sample_data` on every row; "Sample menu — not affiliated" label required in Phase 4 restaurant UI (T-32) | Phase 4 component tests will assert the label |
+
+---
+
+## 2026-10-11 · Phase 4 (customer ordering) · Automated self-review
+
+**Scope:** all code on `feature/customer-ordering`: domain rules, catalog/cart/checkout/order services and routes, payment port, customer pages and components, tests, docs. Reviewed against `THREAT_MODEL.md`, with mutation checks (`TESTING.md` §4) and the E2E journey in a real browser at phone and desktop widths. **No human review has occurred yet.**
+
+| # | Area | Finding | Severity | Correction | Verification |
+|---|---|---|---|---|---|
+| 1 | Correctness | Order history showed `itemCount: 0` for every order: a correlated subquery's unqualified `id` bound to `order_items.id` instead of `orders.id` | Medium | Counts now come from one grouped query by order ID | Integration test caught it; passes now |
+| 2 | Test validity | The cancel-vs-confirm race test relied on timing: with compare-and-set removed it failed only some runs | Medium | Test holds a row lock so both writers read `PLACED` before either writes; deterministic | Mutation: CAS removed → fails 3/3 runs; restored → passes 3/3 |
+| 3 | Layout (Phase 3 regression) | The header's "Create account" button still showed on phones: the button's `inline-flex` class overrode `hidden`. Phase 3's log said this was fixed; it wasn't | Low | A wrapper element does the hiding | Phone screenshot; `isVisible()` false at 390 px |
+| 4 | Process | This branch began with uncommitted work from an earlier turn (shared ordering types, cart service, helpers). A new catalog service was first written without noticing it, overwriting the earlier draft and duplicating the shared types | Medium | Reconciled onto the earlier `ordering.ts` types; duplicate file deleted; catalog service rewritten to match; everything re-tested | Typecheck, full suite |
+| 5 | E2E | Global setup's single-statement delete-then-insert (data-modifying CTE) failed on re-runs: both parts see the same snapshot | Low | Two statements in a transaction | E2E re-run twice, 24/24, no retries |
+| 6 | E2E | The T-01 browser test navigated to checkout before the add-to-cart request finished (flaky on mobile) | Low | Waits for the "Added" status first | 2 consecutive runs without retries |
+| 7 | Error handling | Orders page fell back to page one on **any** error from a bad cursor (`.catch(() => …)`), which would hide database failures | Medium | Falls back only on `VALIDATION_ERROR` for a supplied cursor; everything else throws | Code review |
+| 8 | Consistency | Voiding the simulated payment happened inside the transaction; a rollback after it would have left a voided payment for a live order with a real processor | Low | The gateway is called after commit | Code review; cancel tests |
+| 9 | React | The checkout quote effect set state synchronously (lint error) and could let a slow, older quote overwrite a newer one | Low | Effect only fetches; responses from superseded requests are ignored | Lint; component tests |
+| 10 | Accessibility | The note field's character counter was `aria-live`, which would announce on every keystroke | Low | Counter referenced by `aria-describedby` instead | Code review |
+| 11 | Test coupling | Ordering tests hit the real 10/minute order limit and failed for that reason only | Low | Ordering tests reset rate-limit counters between tests (limits have their own tests) | Suite passes; the 429s confirmed the limit works |
+| 12 | Dead code | `isActive()` in the state-machine module was never used (history filters by terminal statuses in SQL); the domain folder's 100% function-coverage gate failed in clean-clone verification | Low | Removed | `pnpm verify` on a fresh clone |
+
+**Design points checked and kept**
+- Adding to a closed restaurant's cart is allowed by the API (the cart then reports `RESTAURANT_CLOSED`); the UI doesn't offer it. Planning an order before opening is legitimate.
+- An Idempotency-Key from a failed attempt can be reused with a different body, because failed attempts store nothing. Only a key that produced an order is bound to its body.
+- `transitionOrder` refuses courier moves with an explicit error until assignments exist, instead of applying the status change without its side effects.
+
+**Remaining concerns**
+- Orders can't progress past `PLACED` through the UI until the Kitchen Console (Phase 6) and couriers (Phase 5) exist.
+- Restaurant hours are sample data; open/closed is only as right as the data.
+- Phase 4 CI hasn't run on GitHub yet.

@@ -71,7 +71,7 @@ Each requirement has an ID used in the development plan, tests, and PR template.
 
 | ID | Requirement | Pri |
 |---|---|---|
-| CAT-1 | Browse restaurants as cards (image, name, cuisines, open/closed, "Sample data" badge). Browsing does not require sign-in. | M |
+| CAT-1 | Browse restaurants as cards (image, name, cuisines, open/closed, "Sample data" badge). Browsing does not require sign-in. *Built (Phase 4) as a directory list without images: no restaurant photos or logos exist that we may use, and invented images would misrepresent real venues.* | M |
 | CAT-2 | Search restaurants and menu items by text. | S |
 | CAT-3 | Filter by cuisine and by "open now". | S |
 | CAT-4 | Restaurant detail: hours, location on campus, menu grouped by category, prices, unavailable items shown disabled. | M |
@@ -86,7 +86,7 @@ Each requirement has an ID used in the development plan, tests, and PR template.
 | CART-2 | Add item with required/optional option selections (e.g., size, add-ons) and a short special-instructions note. Option rules (min/max selections) enforced server-side. | M |
 | CART-3 | Change quantity (1–20), remove items, clear cart. | M |
 | CART-4 | Cart always displays server-computed prices; items that became unavailable are flagged and block checkout. | M |
-| ORD-1 | Checkout: choose drop point, add delivery instructions (≤ 280 chars), choose tip, see itemized subtotal, delivery fee, service fee, sample tax, tip, total. | M |
+| ORD-1 | Checkout: choose drop point, add delivery instructions (≤ 280 chars), choose tip, see itemized subtotal, delivery fee, service fee, sample tax, tip, total. *Built with tip presets ($0, $1, $2, $3, $5); the API accepts any amount up to the campus maximum.* | M |
 | ORD-2 | Checkout is clearly labeled **"Demo checkout — no real payment is taken."** No card fields are shown. | M |
 | ORD-3 | The server recomputes every price and total. The client sends the total it displayed only as a consistency check; a mismatch returns `PRICE_CHANGED` with a fresh quote instead of placing the order. | M |
 | ORD-4 | Placing an order is idempotent per checkout attempt (Idempotency-Key). A double-click or retry never creates two orders. | M |

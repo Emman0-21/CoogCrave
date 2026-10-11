@@ -17,18 +17,22 @@ describe("landing page", () => {
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   });
 
-  it("invites visitors to create an account and is honest that ordering isn't open yet", () => {
+  it("sends visitors to the restaurants and offers sign-up, and is honest about demo mode", () => {
     render(<Landing signedIn={false} />);
+    expect(screen.getByRole("link", { name: "See what's open" })).toHaveAttribute("href", "/restaurants");
     expect(screen.getByRole("link", { name: "Create your account" })).toHaveAttribute("href", "/sign-up");
-    expect(screen.getByText("Ordering and deliveries open soon.")).toBeInTheDocument();
+    expect(screen.getByText(/menus are samples and payments are simulated/)).toBeInTheDocument();
     // Only links to pages that exist.
-    expect(screen.getAllByRole("link").map((l) => l.getAttribute("href"))).toEqual(["/sign-up"]);
+    expect(screen.getAllByRole("link").map((l) => l.getAttribute("href"))).toEqual([
+      "/restaurants",
+      "/sign-up",
+    ]);
   });
 
   it("doesn't ask signed-in students to sign up again", () => {
     render(<Landing signedIn />);
     expect(screen.queryByRole("link", { name: "Create your account" })).toBeNull();
-    expect(screen.getByText("Your account is ready. Ordering and deliveries open soon.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "See what's open" })).toBeInTheDocument();
   });
 
   it("labels the order ticket as a sample and exposes progress as an ordered list with the current step", () => {
@@ -46,22 +50,27 @@ describe("landing page", () => {
 });
 
 describe("site header", () => {
-  it("offers sign-in and sign-up when signed out", () => {
+  it("offers restaurants, sign-in, and sign-up when signed out", () => {
     render(<SiteHeader user={null} />);
-    const nav = screen.getByRole("navigation", { name: "Account" });
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(within(nav).getByRole("link", { name: "Restaurants" })).toHaveAttribute("href", "/restaurants");
     expect(within(nav).getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/sign-in");
     expect(within(nav).getByRole("link", { name: "Create account" })).toHaveAttribute("href", "/sign-up");
     expect(within(nav).queryByRole("button", { name: "Sign out" })).toBeNull();
+    expect(within(nav).queryByRole("link", { name: /^Cart/ })).toBeNull();
   });
 
-  it("shows the account link and sign out when signed in, and Admin only to admins", () => {
-    const { rerender } = render(<SiteHeader user={{ firstName: "Alex", isAdmin: false }} />);
+  it("shows orders, the cart count, the account link, and Admin only to admins", () => {
+    const { rerender } = render(<SiteHeader user={{ firstName: "Alex", isAdmin: false, cartCount: 0 }} />);
     expect(screen.getByRole("link", { name: "Alex: your account" })).toHaveAttribute("href", "/profile");
+    expect(screen.getByRole("link", { name: "Orders" })).toHaveAttribute("href", "/orders");
+    expect(screen.getByRole("link", { name: "Cart, empty" })).toHaveAttribute("href", "/cart");
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Admin" })).toBeNull();
 
-    rerender(<SiteHeader user={{ firstName: "Ada", isAdmin: true }} />);
+    rerender(<SiteHeader user={{ firstName: "Ada", isAdmin: true, cartCount: 3 }} />);
     expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("href", "/admin");
+    expect(screen.getByRole("link", { name: "Cart, 3 items" })).toBeInTheDocument();
   });
 });
 

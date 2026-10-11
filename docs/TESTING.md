@@ -1,6 +1,6 @@
 # CoogCrave — Testing
 
-> **Last updated:** 2026-10-11 (Phase 3). Describes what exists now; each phase adds to it.
+> **Last updated:** 2026-10-11 (Phase 4). Describes what exists now; each phase adds to it.
 
 ## 1. Test layers
 
@@ -22,6 +22,7 @@ Most of CoogCrave's correctness guarantees live in Postgres: CHECK constraints o
 - `tests/integration/global-setup.ts` applies committed migrations once per run, as the migrator role.
 - `tests/support/integration-env.ts` points the app's `DATABASE_URL` at the test database **as the app role**, so every test exercises production grants.
 - `tests/support/db.ts` provides `openPool(role)` for direct assertions and `resetDatabase()` (truncates all tables as the migrator).
+- `tests/support/ordering.ts` has ordering helpers: seeded IDs, `openAllWeek`/`closeAllWeek` (tests never depend on the clock), `clearOrdering` (empties carts, orders, and rate-limit counters between tests), `checkout()`.
 - `tests/support/http.ts` drives the real route handlers: `appRequest()` builds same-origin requests, `CookieJar` carries the session cookie between calls, and `mailTo()`/`linkIn()` read the outbox. `tests/support/auth.ts` builds on them (`signUp`, `signIn`, `registerVerified`, `signedInUser`). `tests/support/fixtures.ts` inserts campus, location, restaurant, and courier rows directly.
 - Better Auth runs for real (not mocked) with its origin checks pinned on, so tests see production behavior.
 - Files run one at a time (`fileParallelism: false`) because they share one database. Tests inside a file may run concurrent requests (the courier race test in Phase 5 depends on this).
@@ -39,7 +40,23 @@ Most of CoogCrave's correctness guarantees live in Postgres: CHECK constraints o
 | `src/server/services/**` | 90% | 80% | 90% | 90% |
 - Coverage is a floor, not proof. Every state transition, authorization boundary, and user journey also gets an explicit test, whatever the percentage says.
 
-## 4. What the Phase 3 tests cover
+## 4. What the Phase 4 tests cover
+
+| Control | Test file | Requirement / threat |
+|---|---|---|
+| Pricing (round-half-up, worked example, 2 000 generated carts add up), opening hours (midnight-crossing, DST, next opening), option rules, the full state-machine table | `unit/domain-ordering-rules.test.ts` | PRD §6, CAT-5, CART-2 · T-04 |
+| Display formatting: cents, minutes, "Opens tomorrow at…" in campus time | `unit/format.test.ts` | CAT-5 |
+| Restaurant list: sample flag, orderable first, search over names and menu items with literal wildcards, cuisine and open-now filters, strict query; detail with hours and menu; deleted rows hidden; 404s | `integration/catalog-and-cart.test.ts` | CAT-1…6 |
+| Cart: server pricing, merging, option rules, availability, one restaurant per cart, own cart only, live re-pricing and blocking problems, minimum subtotal, simultaneous first adds | `integration/catalog-and-cart.test.ts` | CART-1…4 · T-08 |
+| Quote and order placement: worked example ($29.34), snapshots, history, simulated payment, notification, empty cart after; tampered/stale totals; closed restaurant, unavailable item, empty cart; idempotency including 5 simultaneous submits | `integration/checkout-and-orders.test.ts` | ORD-1…7 · T-08, T-10 |
+| Visibility, cancel, refusal after confirm, customers can't advance orders, `STALE_STATE`, deterministic cancel-vs-confirm race, restaurant steps on the timeline, history with scopes and cursor | `integration/checkout-and-orders.test.ts` | ORD-8, ORD-9, TRK-1 · T-01, T-04, T-11 |
+| Role matrix extended to all 13 new endpoints | `integration/role-access.test.ts` | T-03 |
+| Add-to-cart dialog (required choices, max choices, unavailable options, price, conflict → new cart), checkout (sample tax and demo labels, building required, one Idempotency-Key across retries, `PRICE_CHANGED`), tracking (steps with times, no ETA, cancel confirmation with `expectedVersion`, polling every 5 s that stops at a final status) | `component/ordering-ui.test.tsx` | CART-1, ORD-1…4, TRK-1…3 |
+| **Journey J1 to `PLACED`** (mobile + desktop): search, sign in from the menu, required choice, add, cart, checkout, double-click place (one order), confirmation, history, cancel; another account gets a real 404 for the order page | `e2e/ordering.spec.ts` | Phase 4 exit criterion · T-01, T-10 |
+
+Mutation checks in Phase 4 (each broken on purpose, test failed, code restored): order ownership filter removed; `PRICE_CHANGED` check removed; in-lock idempotency replay removed; option validation removed; both compare-and-set guards removed (the race test fails every run; with only one removed the other still protects, so it passes, which is correct).
+
+## 5. What the Phase 3 tests cover
 
 | Control | Test file | Requirement / threat |
 |---|---|---|
@@ -72,7 +89,7 @@ A passing test only matters if it can fail. During Phase 3 these were broken on 
 
 And one real bug the tests caught on their own: Better Auth switches its origin checks off under `NODE_ENV=test`, so the open-redirect tests failed until the checks were pinned on.
 
-## 5. What the Phase 2 tests cover
+## 6. What the Phase 2 tests cover
 
 | Control | Test file | Threat ID |
 |---|---|---|
@@ -90,7 +107,7 @@ And one real bug the tests caught on their own: Better Auth switches its origin 
 | App role can't create, alter, drop, or truncate tables | `integration/db-roles.test.ts` | T-28 |
 | CSP produces no violations in a real browser; skip link; 404 page | `e2e/smoke.spec.ts` | T-21 |
 
-## 6. Running locally
+## 7. Running locally
 
 ```bash
 docker compose up -d db        # or: pnpm db:local:up
@@ -101,13 +118,13 @@ pnpm db:seed && pnpm db:seed:demo   # E2E signs in as the demo accounts
 pnpm build && pnpm exec playwright install chromium && pnpm test:e2e
 ```
 
-E2E global setup (`tests/e2e/support/global-setup.ts`) clears rate-limit counters on the dev database before each run, so repeated local runs don't trip sign-in limits, and stops with a clear message if the demo accounts are missing. If Playwright's browser download is blocked, point `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` at an installed Chromium.
+E2E global setup (`tests/e2e/support/global-setup.ts`) clears rate-limit counters on the dev database before each run, so repeated local runs don't trip sign-in limits, stops with a clear message if the demo accounts are missing, and opens The Burger Joint around the clock so the ordering journey works at any hour (`pnpm db:seed` restores its sample hours). Ordering tests create their own new accounts, so the mobile and desktop runs never share a cart. If Playwright's browser download is blocked, point `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` at an installed Chromium.
 
-## 7. CI
+## 8. CI
 
 `.github/workflows/ci.yml` runs on every pull request and push to `main`: locked install, tracked-env check, format, lint, typecheck, audit, migration drift check, migrations against a fresh Postgres 16, unit + component, integration, coverage gate, and a production build. `.github/workflows/e2e.yml` migrates and seeds a fresh database (throwaway CI-only secrets), builds the app, and runs Playwright. No step suppresses failures (`|| true` and `continue-on-error` aren't used).
 
-## 8. Writing new tests
+## 9. Writing new tests
 
 - Business rules go in `src/server/domain` as pure functions, unit-tested exhaustively (e.g. every from × to × actor combination for the order state machine).
 - Services and routes are integration-tested through the real route handler (`GET(new Request(...))`), against the real database.

@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { buildPageCsp, generateNonce } from "@/server/security/headers";
 
 /** Page areas that need an account. */
-const SIGNED_IN_AREAS = ["/profile", "/admin", "/courier"];
+const SIGNED_IN_AREAS = ["/profile", "/admin", "/courier", "/cart", "/checkout", "/orders"];
 
 /**
  * Runs before page requests: sets the per-request CSP nonce, and sends visitors with no session cookie
