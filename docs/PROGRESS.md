@@ -1,7 +1,77 @@
 # CoogCrave — Progress
 
-**Current phase:** 3 — Authentication & persistence · **Status:** `COMPLETE` (approved at the checkpoint; CI green). D2 follow-up in review on `chore/real-restaurant-names`
-**Branch:** `feature/auth-persistence` (9 commits on top of `main` at `7f43939`, including a small Phase 2 follow-up fix) · **Last updated:** 2026-10-11
+**Current phase:** 4 — Customer experience · **Status:** `IN REVIEW` (awaiting Phase 4 checkpoint approval)
+**Branch:** `feature/customer-ordering` (7 commits on top of `main` at `c87672b`) · **Last updated:** 2026-10-11
+
+---
+
+## Phase 4 report
+
+### 1. What was implemented
+
+| Task | Status | Notes |
+|---|---|---|
+| Pricing, hours, option rules, state machine | `COMPLETE` | Pure modules, exhaustive unit tests (integer cents, round-half-up, past-midnight hours, DST) |
+| Restaurant list, search, filters | `COMPLETE` | Search over names and menu items; cuisine and "taking orders now" filters; works without JavaScript |
+| Restaurant detail and menu | `COMPLETE` | Sample hours, pickup building, menu with choices; sold-out items shown disabled; "Sample menu, not affiliated" on every restaurant |
+| Server-side cart | `COMPLETE` | One restaurant per cart (with "start a new cart"), option rules enforced on the server, live re-pricing, blocking problems flagged |
+| Checkout and quote | `COMPLETE` | Drop-off building, courier note, tip; totals only from the server; labeled demo payment and sample tax |
+| Order placement | `COMPLETE` | Idempotent (incl. simultaneous double-submits), snapshots, status history, simulated payment, notification row, cart emptied |
+| Confirmation, tracking, history | `COMPLETE` | Polls every 5 s while active and visible, stops at a final status; real step times, no ETA |
+| Customer cancel | `COMPLETE` | Only while `PLACED`; compare-and-set referee for every status change |
+| Demo auto-advance (`DEMO_AUTO_ADVANCE`) | `DEFERRED` → Phase 6 | Goes with the Kitchen Console and other demo tooling |
+
+### 2. Files changed
+
+69 files (48 added, 21 modified) since `main`.
+
+- **Domain:** `src/server/domain/{pricing,hours,options,order-state-machine}.ts`
+- **Services:** `src/server/services/{catalog,cart,checkout,orders,notifications,pagination}.ts`, `src/server/payments/gateway.ts`, `src/server/db/pg-errors.ts`, `src/server/http/{errors,limits}.ts`
+- **API:** `src/app/api/v1/{restaurants,restaurants/[slug],cuisines,cart,cart/items,cart/items/[cartItemId],checkout/quote,orders,orders/[orderId],orders/[orderId]/transitions}/route.ts`
+- **Shared:** `src/shared/schemas/ordering.ts`, `src/shared/format.ts`
+- **UI:** pages `restaurants`, `restaurants/[slug]`, `cart`, `checkout`, `orders`, `orders/[orderId]`; components in `src/components/features/{restaurants,cart,orders}/`; header (navigation, cart badge, phone fix), landing copy, `TextAreaField`, `src/client/api.ts` (headers, error details); proxy protects the new areas
+- **Tests:** `unit/{domain-ordering-rules,format}`, `integration/{catalog-and-cart,checkout-and-orders}`, role matrix extended, `component/ordering-ui`, `e2e/ordering.spec.ts`, support helpers, E2E global setup
+- **Docs:** API spec §5–7, architecture (§4, §6, §9, §11, §16), threat model, testing, PRD, plan, README, review log, this report
+
+### 3. Commands executed (clean clone of `feature/customer-ordering` at `ef70a46`, fresh `coogcrave_dev` and `coogcrave_test` databases, 2026-10-11)
+
+| Command | Result |
+|---|---|
+| `pnpm install --frozen-lockfile` | ✅ exit 0 |
+| `pnpm verify` (tracked-env, format, lint, typecheck, drift, coverage, build) | ✅ exit 0 (the first run failed the domain coverage gate on an unused function; removed, re-run from scratch) |
+| ↳ `pnpm test:coverage` | ✅ 26 files, **351/351 tests passed**. Coverage 97.0% statements, 90.7% branches, 98.5% functions, 98.5% lines. Domain 98.1% / 97.3% branches / 100% functions; services 95.2% / 87.9% branches |
+| `pnpm db:migrate`, `pnpm db:seed`, `pnpm db:seed:demo` | ✅ 14 buildings, 10 cuisines, 11 restaurants, 31 items; 4 demo accounts |
+| `pnpm test:e2e` (Chromium 141, `CI=1`) | ✅ **24/24 passed** (12 tests × mobile + desktop), no retries needed; also 2 earlier consecutive runs with retries disabled |
+| `pnpm audit --audit-level=high` | ✅ pass (same accepted dev-only exceptions) |
+
+**Checkpoint** (exit criterion: J1 E2E up to `PLACED`): `e2e/ordering.spec.ts` searches, signs in from the menu, hits a required choice, adds two bacon double cheeseburgers ($20.98), checks out to the library with a $3 tip ($29.34), double-clicks "Place order" (one order), sees the confirmation and history, and cancels.
+
+### 4. Tests by result
+
+All 351 Vitest tests and 24 E2E runs pass; none skipped. During development:
+- **Real bugs caught by tests:** item counts in order history were always 0 (SQL subquery bound to the wrong `id`); the E2E setup's single-statement reset failed on re-runs.
+- **Tests strengthened:** the cancel-vs-confirm race test was timing-dependent; it now forces the interleaving with a row lock and fails every run if compare-and-set is removed. Five mutation checks in total (`TESTING.md` §4).
+- **Test-authoring mistakes fixed:** an E2E selector that matched two status messages; an E2E step that navigated before the cart update finished; ordering tests that tripped the real order rate limit.
+
+### 5. Engineering risks remaining
+
+| Risk | Impact | Next step |
+|---|---|---|
+| Orders can't move past `PLACED` in the UI | The demo stops at "Order placed" until the Kitchen Console (Phase 6) and couriers (Phase 5) exist | Phase 5 next; consider pulling the Kitchen Console forward if the demo date is close (D5) |
+| Phase 4 CI hasn't run on GitHub | New workflow steps unproven in CI (E2E setup now edits restaurant hours) | Push the branch and open the PR |
+| Restaurant hours are sample data | Real venues may be open when the app says closed (and vice versa) | Labeled as sample; replace with real hours only with permission |
+| No TanStack Query | Fine for Phase 4; the courier dashboard may want shared client caching | Decide in Phase 5 (`ARCHITECTURE.md` §16) |
+| Orders visible only to their customer | Admins can't see orders yet | Admin projection in Phase 6 |
+
+### 6. Ready for review?
+
+**Yes.** Every Phase 4 exit criterion passes from a clean clone with fresh databases, including the J1 browser journey on phone and desktop. One task (demo auto-advance) is deferred to Phase 6 and recorded.
+
+### 7. What should happen next
+
+1. Review the branch, mainly `src/server/services/{checkout,orders,cart}.ts` and the four "recorded for review" decisions added to `ARCHITECTURE.md` §16.
+2. Push `feature/customer-ordering` and open a PR to `main` so CI runs.
+3. On approval and merge: Phase 5 (courier experience) on `feature/courier-delivery`.
 
 ---
 
@@ -181,7 +251,8 @@ All 52 Vitest tests pass. Three failures occurred during development and were fi
 | 1 — Discovery & architecture | `COMPLETE` (approved 2026-10-10) |
 | 2 — Project foundation | `COMPLETE` (merged to `main` in PR #1, `7f43939`) |
 | 3 — Authentication & persistence | `COMPLETE` (approved 2026-10-11) |
-| 4–8 | `NOT STARTED` |
+| 4 — Customer experience | `IN REVIEW` |
+| 5–8 | `NOT STARTED` |
 
 ## Blockers
 

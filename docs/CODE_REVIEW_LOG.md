@@ -119,8 +119,8 @@ Each entry states whether it is an **automated self-review** (performed by Claud
 | 8 | Consistency | Voiding the simulated payment happened inside the transaction; a rollback after it would have left a voided payment for a live order with a real processor | Low | The gateway is called after commit | Code review; cancel tests |
 | 9 | React | The checkout quote effect set state synchronously (lint error) and could let a slow, older quote overwrite a newer one | Low | Effect only fetches; responses from superseded requests are ignored | Lint; component tests |
 | 10 | Accessibility | The note field's character counter was `aria-live`, which would announce on every keystroke | Low | Counter referenced by `aria-describedby` instead | Code review |
-| 12 | Dead code | `isActive()` in the state-machine module was never used (history filters by terminal statuses in SQL); the domain folder's 100% function-coverage gate failed in clean-clone verification | Low | Removed | `pnpm verify` on a fresh clone |
 | 11 | Test coupling | Ordering tests hit the real 10/minute order limit and failed for that reason only | Low | Ordering tests reset rate-limit counters between tests (limits have their own tests) | Suite passes; the 429s confirmed the limit works |
+| 12 | Dead code | `isActive()` in the state-machine module was never used (history filters by terminal statuses in SQL); the domain folder's 100% function-coverage gate failed in clean-clone verification | Low | Removed | `pnpm verify` on a fresh clone |
 
 **Design points checked and kept**
 - Adding to a closed restaurant's cart is allowed by the API (the cart then reports `RESTAURANT_CLOSED`); the UI doesn't offer it. Planning an order before opening is legitimate.
