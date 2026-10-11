@@ -1,7 +1,7 @@
 # CoogCrave — API Specification (v1)
 
-> **Status:** Draft for Phase 1 architecture checkpoint · **Last updated:** 2026-10-10
-> Contracts are designed before implementation. Zod schemas in `src/shared/schemas` become the source of truth in Phase 2+, and this document is kept in sync with them.
+> **Status:** Approved at Phase 1; updated through Phase 3 · **Last updated:** 2026-10-11
+> Contracts are designed before implementation. Endpoints marked **(implemented)** match the code and its tests; the rest are the designed contract for later phases. Zod schemas in `src/shared/schemas` and the route files are the source of truth for implemented endpoints.
 
 ---
 
@@ -68,25 +68,39 @@
 | 413 | `PAYLOAD_TOO_LARGE` | Body > 16 KB |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | Mutation without JSON content type |
 | 422 | `CART_EMPTY`, `ITEM_UNAVAILABLE`, `RESTAURANT_CLOSED`, `INVALID_OPTIONS`, `BELOW_MINIMUM_SUBTOTAL`, `INVALID_LOCATION`, `TIP_OUT_OF_RANGE`, `CANNOT_ACCEPT_OWN_ORDER`, `IDEMPOTENCY_KEY_REUSED`, `REASON_REQUIRED`, `NOT_REVIEWABLE` | Business rule violations |
-| 429 | `RATE_LIMITED` | With `Retry-After` header |
+| 429 | `RATE_LIMITED` | With `Retry-After` header (seconds) |
 | 500 | `INTERNAL_ERROR` | Unexpected; details only in logs |
 
-### Rate limits (initial values, tuned in Phase 7)
+**`/api/auth/*` codes** (Better Auth's `{ code, message }` body, see §3): `EMAIL_DOMAIN_NOT_ALLOWED`, `INVALID_NAME`, `PASSWORD_TOO_WEAK`, `PASSWORD_TOO_SHORT`, `PASSWORD_TOO_LONG` (400); `INVALID_EMAIL_OR_PASSWORD` (401); `EMAIL_NOT_VERIFIED`, `ACCOUNT_SUSPENDED` (403); `INVALID_TOKEN` (400, or as `?error=` on redirects).
 
-| Scope | Limit |
-|---|---|
-| Sign-in | 10 / min per IP; Better Auth lockout behavior on repeated failures |
-| Sign-up | 5 / hour per IP |
-| Password reset / verification resend | 3 / hour per email |
-| `POST /orders` | 10 / min per user |
-| `POST /orders/{id}/transitions` | 60 / min per user |
-| Cart mutations | 120 / min per user |
-| Reviews | 10 / hour per user |
-| Everything else under `/api/v1` | 300 / min per IP |
+**Admin denials:** the API answers `403 FORBIDDEN` to non-admins; admin *pages* answer `404` so the admin area isn't advertised.
+
+### Rate limits
+
+Fixed-window counters in Postgres, shared by all server instances (`src/server/rate-limit`). Subjects (IPs, emails) are stored as hashes. Limits throttle; they never lock an account. Per-IP limits are generous because many students share campus Wi-Fi NAT addresses; per-email limits protect individual accounts and inboxes.
+
+| Scope | Limit | Status |
+|---|---|---|
+| Sign-in | 30 / min per IP **and** 10 / 15 min per email | Implemented |
+| Sign-up | 20 / hour per IP **and** 5 / hour per email | Implemented |
+| Password-reset request | 20 / hour per IP **and** 3 / hour per email | Implemented |
+| Verification-email resend | 20 / hour per IP **and** 3 / hour per email | Implemented |
+| Reset password / change password | 10 / 15 min per IP | Implemented |
+| Other `/api/auth/*` | 120 / min per IP | Implemented |
+| `PATCH /me` | 30 / min per user | Implemented |
+| Everything under `/api/v1` (default) | 300 / min per IP | Implemented |
+| `POST /orders` | 10 / min per user | Phase 4 |
+| `POST /orders/{id}/transitions` | 60 / min per user | Phase 4–5 |
+| Cart mutations | 120 / min per user | Phase 4 |
+| Reviews | 10 / hour per user | Phase 6 |
+
+`/api/health` is exempt (load-balancer polling; it runs only `select 1`).
 
 ---
 
 ## 2. Endpoint index
+
+Implemented as of Phase 3: `GET /api/health`, `/api/auth/*`, `GET /me`, `PATCH /me`, `GET /locations`, `GET /admin/audit-events`. The rest is the designed contract.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
@@ -143,15 +157,35 @@
 ### `GET /api/health`
 - **Response 200:** `{ "status": "ok", "db": "ok", "version": "<git sha>" }`; **503** with `"db": "error"` if the DB is unreachable. No secrets or config in the body.
 
-### `/api/auth/*` (Better Auth)
-Sign-up (email, password, name), sign-in, sign-out, get-session, send/verify email verification, request/complete password reset. Exact paths are pinned from the installed Better Auth version in Phase 3 and listed here then.
-**Our constraints on top:** email domain allowlist; `role`/`suspendedAt` not accepted from input; generic responses on reset ("If an account exists, we've sent a link"); verification required before sign-in; rate limits above.
+### `/api/auth/*` — Better Auth 1.7.7 (implemented)
+
+Served by Better Auth behind our wrapper (`src/server/auth/route-handler.ts`), which adds: same-origin check on every POST (including sign-in and sign-up, against login CSRF), JSON-only bodies (Better Auth also accepts form posts; we return `415`), the 16 KB limit, the rate limits above, request IDs, and logging that never records query strings or reset tokens.
+
+**Error format differs from `/api/v1`:** Better Auth answers `{ "code": "...", "message": "..." }`. Errors raised by our wrapper (403 origin, 413, 415, 429) use the standard envelope. The browser client (`src/client/api.ts`) normalizes both.
+
+| Method | Path | Purpose and behavior |
+|---|---|---|
+| POST | `/sign-up/email` | `{ name, email, password, callbackURL? }`. Email domain must be allowed (`400 EMAIL_DOMAIN_NOT_ALLOWED`); password must pass the policy (`400 PASSWORD_TOO_WEAK` / `PASSWORD_TOO_SHORT`); name 1–100 printable characters (`400 INVALID_NAME`). `role` is replaced with `STUDENT`; `suspendedAt` is refused. **Returns the same `200 { token: null, user }` for new and existing emails** (existing owners get a notice email). Sends a verification email. No session is created. |
+| POST | `/sign-in/email` | `{ email, password }`. `200` + session cookie. `401 INVALID_EMAIL_OR_PASSWORD` for unknown email **or** wrong password (identical body). After a correct password: `403 EMAIL_NOT_VERIFIED` (and a new verification email) or `403 ACCOUNT_SUSPENDED`. |
+| POST | `/sign-out` | Deletes the session row and clears the cookie. |
+| GET | `/get-session` | Current session and user, or `null`. |
+| GET | `/verify-email?token&callbackURL` | Verifies the address and redirects (`302`) to `callbackURL` (same-site only, else `403`). Does **not** sign the user in. Invalid/expired tokens redirect with `?error=`. |
+| POST | `/send-verification-email` | `{ email, callbackURL? }`. Always `200 { status: true }` with a 500 ms minimum response time, whether or not the account exists. |
+| POST | `/request-password-reset` | `{ email, redirectTo }`. Always `200` with the same message. `redirectTo` must be same-site (`403` otherwise). |
+| GET | `/reset-password/:token?callbackURL` | Validates the token, then redirects to `callbackURL?token=…` (our `/reset-password` page) or `?error=INVALID_TOKEN`. |
+| POST | `/reset-password` | `{ token, newPassword }`. Password policy applies. Token is single-use (`400 INVALID_TOKEN` on reuse). Revokes all of the user's sessions and emails a "password changed" notice. |
+| POST | `/change-password` | Enabled (requires the current password and a session); password policy applies. No UI yet. |
+
+**Session cookie:** `coogcrave.session_token` (prefixed `__Secure-` when served over HTTPS), httpOnly, `SameSite=Lax`, `Path=/`, `Max-Age` 7 days. Fixed lifetime: the session isn't extended by activity.
+
+**Disabled endpoints (404):** `/update-user`, `/delete-user`, `/change-email`, `/list-sessions`, `/revoke-session(s)`, `/revoke-other-sessions`, `/link-social`, `/list-accounts`, `/unlink-account`, `/refresh-token`, `/get-access-token`, `/account-info`, `/sign-in/social`, `/callback/:id`, `/verify-password`, `/update-session`. Profile changes go through `PATCH /api/v1/me`.
 
 ---
 
 ## 4. Profile
 
-### `GET /me` — user
+### `GET /me` — user (implemented)
+- Always the caller's own account; there is no user ID parameter.
 - **Response 200**
 ```json
 {
@@ -163,11 +197,11 @@ Sign-up (email, password, name), sign-in, sign-out, get-session, send/verify ema
 }
 ```
 
-### `PATCH /me` — user
-- **Request:** `{ "displayName"?: string(1–60) | null, "defaultLocationId"?: uuid | null }`
+### `PATCH /me` — user (implemented)
+- **Request (strict):** `{ "displayName"?: string | null, "defaultLocationId"?: uuid | null }`, at least one field. `displayName` is trimmed, 1–60 characters, no control characters or `< >`; `null` clears it. Unknown fields (e.g. `role`) → `400`.
 - **Response 200:** same as `GET /me`.
-- **Errors:** `400`, `422 INVALID_LOCATION`.
-- **Side effects:** upsert `user_profiles`.
+- **Errors:** `400 VALIDATION_ERROR`; `422 INVALID_LOCATION` (not an active drop point: unknown, soft-deleted, or pickup-only); `429`.
+- **Side effects:** upsert `user_profiles` (row created on first save).
 
 ---
 
@@ -206,7 +240,7 @@ Sign-up (email, password, name), sign-in, sign-out, get-session, send/verify ema
 - **Errors:** `404` (unknown or soft-deleted).
 
 ### `GET /cuisines` → `[{ "slug", "name" }]`
-### `GET /locations` → `[{ "id", "name", "shortName", "description" }]` (active drop points only)
+### `GET /locations` (implemented) → `{ "data": [{ "id", "name", "shortName", "description" }] }`, active drop points in display order
 
 ---
 
@@ -414,7 +448,23 @@ All admin mutations write an `audit_events` row (actor, action, target, before/a
 - **Query:** `status?` (repeatable), `restaurantId?`, `q?` (order number / customer email), `limit`, `cursor`.
 - Kitchen Console uses `status=PLACED&status=CONFIRMED` and the transitions endpoint with `actingAs: "RESTAURANT_SIM"`. Order detail uses `GET /orders/{id}` (admin projection).
 
-### `GET /admin/audit-events?actorUserId=&targetType=&targetId=` → list of audit rows (newest first).
+### `GET /admin/audit-events` — admin (implemented)
+- **Query (strict):** `limit` 1–50 (default 20), `cursor?` (opaque), `targetType?`, `targetId?`, `actorUserId?` (uuid). Unknown parameters → `400`.
+- **Response 200:** newest first, ties broken by ID:
+```json
+{
+  "data": [{
+    "id": "uuid", "createdAt": "ISO-8601",
+    "actorType": "ADMIN|SYSTEM",
+    "actor": { "id": "uuid", "name": "…", "email": "…" } | null,
+    "action": "user.create_admin", "targetType": "user", "targetId": "uuid",
+    "metadata": { }, "requestId": "…" | null
+  }],
+  "nextCursor": "opaque" | null
+}
+```
+- The cursor carries the row's microsecond timestamp, so rows written in the same millisecond are never skipped or repeated. A malformed cursor → `400`.
+- Rows are append-only: the app's database role has no `UPDATE`/`DELETE` on `audit_events`. `SYSTEM` rows (e.g. from `pnpm admin:create`) have `actor: null` and a label in `metadata.via`.
 
 ### `POST /admin/demo/reset`
 - **Available only when** `APP_ENV ≠ production` **and** `DEMO_RESET_ENABLED=true`; otherwise **404** (the endpoint behaves as if it doesn't exist).

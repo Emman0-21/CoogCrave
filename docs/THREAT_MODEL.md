@@ -1,6 +1,6 @@
 # CoogCrave — Threat Model
 
-> **Status:** Approved at Phase 1; control status updated after Phase 2 (§5) · **Last updated:** 2026-10-10
+> **Status:** Approved at Phase 1; control status updated after Phase 3 (§5) · **Last updated:** 2026-10-11
 > Method: assets → actors → trust boundaries → threats (STRIDE) with a mitigation **and a way to verify it**. A control without a verification is listed as unverified, not as done. Re-reviewed at the end of every phase (`CODE_REVIEW_LOG.md`).
 
 ---
@@ -55,7 +55,7 @@ Verification types: **U** unit test · **I** integration test (real DB) · **E**
 | T-04 | Spoofing | Customer advances their own order to `CONFIRMED`/`READY_FOR_PICKUP` (impersonating the restaurant) | Transition table allows those moves only for `RESTAURANT_SIM`; `actingAs` accepted only from admins | U: exhaustive transition × actor table · I: customer attempts → `409`/`403` | 4–5 |
 | T-05 | Info disclosure | Courier harvests customer names/instructions from offers | Offer projection excludes PII; full details only for the assigned courier, time-boxed to 24 h after the assignment ends | I: response-shape assertions on offers and on non-assigned courier `GET /orders/{id}` | 5 |
 | T-06 | Elevation | Courier accepts their own order (self-dealing) | `customer_id <> courier user` in the CAS `WHERE`; policy check | I | 5 |
-| T-07 | Elevation | Suspended user keeps acting via an existing session | Suspension deletes sessions; session cookie cache off/≤ 60 s; guards check `suspendedAt` | I | 6 |
+| T-07 | Elevation | Suspended user keeps acting via an existing session | Every request re-reads `suspended_at` (session cookie cache off); sign-in refused for suspended accounts (session-create hook); suspension also deletes sessions (admin endpoint, Phase 6) | I: suspended identity with a valid cookie denied on every endpoint | 3, 6 |
 
 ### Integrity and business logic
 
@@ -72,18 +72,18 @@ Verification types: **U** unit test · **I** integration test (real DB) · **E**
 
 | ID | STRIDE | Threat | Mitigation | Verify | Phase |
 |---|---|---|---|---|---|
-| T-14 | Spoofing | Credential stuffing / brute force | Rate limits on sign-in (Postgres-backed, works across serverless instances); password ≥ 10 chars + common-password check | I: exceeding limit → `429` | 3 |
+| T-14 | Spoofing | Credential stuffing / brute force | Rate limits on sign-in per IP **and per email** (Postgres-backed, shared across instances); password 10–128 chars, zxcvbn strength score ≥ 3 (catches common and dictionary passwords), and not built from the user's own name or email. Per-IP limits trust the first `X-Forwarded-For` entry, which is safe only behind a proxy that overwrites it (Vercel does; confirm at deployment). Per-email limits don't depend on it | I: exceeding limit → `429` from any IP · U: password policy | 3 |
 | T-15 | Info disclosure | Account enumeration via sign-up/reset messages | Generic responses and equal response shapes for existing/non-existing emails | I | 3 |
-| T-16 | Spoofing | Session theft or fixation | httpOnly, `Secure` (deployed), `SameSite=Lax` cookies; session rotated on sign-in; server-side sessions revocable; 7-day expiry | I: cookie attributes · R | 3 |
-| T-17 | Spoofing | Verification/reset token reuse or guessing | Library-generated single-use, expiring tokens; tokens never logged | I: reused token rejected | 3 |
-| T-18 | Spoofing | Open redirect via post-login `callbackURL` | Only same-origin relative paths accepted | U | 3 |
+| T-16 | Spoofing | Session theft or fixation | httpOnly, `Secure` (whenever served over https), `SameSite=Lax` cookies; a new random session is created at sign-in (there is no pre-sign-in session to fix); server-side sessions, deleted on sign-out and password reset; fixed 7-day expiry | I: cookie attributes, server-side sign-out, forged cookie rejected · R | 3 |
+| T-17 | Spoofing | Verification/reset token reuse or guessing | **Reset:** random token, stored hashed (`storeIdentifier: "hashed"`), single-use, 1-hour expiry, revokes all sessions when used. **Verification:** signed JWT, 24-hour expiry; reusable within that window, which is harmless because it can only re-confirm the same address and never signs anyone in. Tokens are kept out of logs (reset tokens in paths are replaced with `:token`) | I: reused reset token rejected; made-up token rejected; verify link gives no session | 3 |
+| T-18 | Spoofing | Open redirect via post-login `callbackURL` | Better Auth's origin check (pinned on even in tests) refuses off-site `callbackURL`/`redirectTo`; our `safeNextPath` accepts only same-site relative paths for `?next=` | U: `safeNextPath` · I: off-site verify/reset redirects → `403` | 3 |
 | T-19 | Spoofing | Non-UH sign-ups / treating email domain as enrollment proof | Domain allowlist; UI says "verified UH email," never "verified student" | I + R (copy review) | 3 |
 
 ### Web vulnerabilities
 
 | ID | STRIDE | Threat | Mitigation | Verify | Phase |
 |---|---|---|---|---|---|
-| T-20 | Tampering | CSRF on cookie-authenticated mutations | `SameSite=Lax`; `Origin` check on all mutations; JSON-only bodies (cross-site forms can't send `application/json` without a preflight) | I: mutation with foreign `Origin` → `403`; form-encoded → `415` | 2 |
+| T-20 | Tampering | CSRF on cookie-authenticated mutations, including **login CSRF** (signing a victim into the attacker's account) | `SameSite=Lax`; `Origin` check on all mutations, including sign-in and sign-up; JSON-only bodies (cross-site forms can't send `application/json` without a preflight) | I: mutation with foreign `Origin` → `403`; form-encoded → `415` | 2–3 |
 | T-21 | Tampering / info disclosure | Stored XSS through delivery instructions, reviews, names, menu text | React output escaping; **lint ban on `dangerouslySetInnerHTML`**; length limits; Content-Security-Policy (`script-src 'self'` + nonces, `object-src 'none'`, `frame-ancestors 'none'`) | L + E: a `<script>` payload renders as text · I: CSP header present | 2, 7 |
 | T-22 | Tampering | SQL injection | Drizzle query builder (parameterized); raw SQL only through the `sql` tagged template, which parameterizes interpolations; **lint ban on `sql.raw()`** | L + R | 2 |
 | T-23 | Info disclosure | Over-exposed API responses (returning Prisma rows with hashes or emails) | Explicit DTO mappers per projection; never return ORM objects | I: response shape assertions · R | 3+ |
@@ -100,13 +100,40 @@ Verification types: **U** unit test · **I** integration test (real DB) · **E**
 | T-29 | Tampering | Demo reset or demo seed run against production | Requires `APP_ENV ≠ production` **and** `DEMO_RESET_ENABLED=true` **and** admin; endpoint returns `404` otherwise; seed script refuses in production; audited | I: with `APP_ENV=production` → `404` | 6 |
 | T-30 | Elevation | Vulnerable dependency | Exact pins + lockfile; `pnpm audit --audit-level=high` fails CI (accepted exceptions listed with reason and review date in `pnpm-workspace.yaml`); Dependabot weekly updates; dependencies justified in `ARCHITECTURE.md` | C | 2 |
 | T-31 | Info disclosure | Error responses leak stack traces or SQL | Central error mapper; `500` returns code + requestId only | I | 2 |
-| T-32 | Reputation | UI implies UH or restaurant endorsement | Disclaimers (landing, footer, restaurant cards); no UH logos/marks; "Sample data" badges | R: copy checklist in PR template | 4, 7 |
+| T-32 | Reputation | UI implies UH or restaurant endorsement | Disclaimers (landing, footer, restaurant cards); no UH logos/marks; fictional restaurant names; "Sample data" badges | R: copy checklist in PR template | 3, 4, 7 |
+| T-33 | DoS / annoyance | Email flooding: repeated sign-up, reset, or resend requests for someone else's address fill their inbox (sign-up to an existing address sends the owner a notice) | Per-email limits on all four email-sending endpoints (3–5 per hour), regardless of source IP | I: per-email caps hold across IPs | 3 |
+| T-34 | Spoofing | A mail scanner (or anyone who sees the link) "clicks" the verification link and gets a session | `autoSignInAfterVerification: false`; the user signs in with their password afterwards | I: verify response sets no session cookie | 3 |
+| T-35 | Elevation | A demo account with a known password exists in production | Demo seed refuses `APP_ENV=production`; demo emails use the reserved `.test` domain; the password comes only from `SEED_DEMO_PASSWORD`. Admins in production are created only with `pnpm admin:create`, which is audited | I | 3 |
 
 ---
 
 ## 5. Control status
 
 Status moves from **Designed** → **Implemented** (code exists) → **Verified** (its listed test or check passes). Nothing is called Verified on the strength of a library being installed.
+
+### After Phase 3
+
+| ID | Status | Evidence |
+|---|---|---|
+| T-02 Role injection | **Verified** | `auth-security.test.ts`: sign-up with `role: "ADMIN"` → `STUDENT`; `suspendedAt`/`emailVerified` refused. `role-access.test.ts`: `PATCH /me` with `role` → `400`. |
+| T-03 Route-level access | **Verified** for every Phase 3 endpoint | `role-access.test.ts`: 5 endpoints × 6 identities (anonymous, student, approved courier, admin, suspended, unverified) with the documented status and code for each cell; forged cookie rejected. Page guards unit-tested; E2E shows `/admin` → 404 for students. New endpoints join the matrix as they're added. |
+| T-07 Suspended sessions | **Verified** (request-time check) · deletion Phase 6 | Suspended identity with a still-valid cookie is denied everywhere; suspended sign-in refused. |
+| T-12 Audit tampering | **Verified** | `schema-constraints.test.ts` as the app role: `UPDATE`/`DELETE`/`TRUNCATE` on `audit_events` and `order_status_events` fail; `INSERT`/`SELECT` work. |
+| T-14 Brute force | **Verified** | `rate-limiter.test.ts`: atomic under 40 concurrent requests; `auth-security.test.ts`: per-email sign-in limit holds across rotating IPs; password policy unit tests (short, common, personal, `Spring2027!`). |
+| T-15 Enumeration | **Verified** | Sign-up for an existing email returns the same status and body as a new one; unknown email and wrong password give identical `401` bodies; reset requests answer identically. Timing differences aren't measured (see §6). |
+| T-16 Sessions | **Verified** | Cookie is `HttpOnly`, `SameSite=Lax`, `Path=/`, `Max-Age=604800`; sign-out deletes the row; forged cookie → `401`. `Secure` is set by Better Auth when `APP_URL` is https, which tests (http) can't exercise; confirm on the first deployment. |
+| T-17 Tokens | **Verified** | Reset token works once, then `INVALID_TOKEN`; made-up token rejected; other sessions revoked; reset path logged as `/reset-password/:token`. |
+| T-18 Open redirect | **Verified** | Off-site verify/reset redirects → `403` (with origin checks pinned on under `NODE_ENV=test`, a bug this caught); `safeNextPath` unit tests. |
+| T-19 Domain allowlist | **Verified** (code) · copy review pending | `uh.edu` and its subdomains accepted; look-alikes (`evil-uh.edu`, `uh.edu.attacker.example`, `uhedu.com`) refused. UI copy says "UH email", never "verified student"; human copy review pending. |
+| T-20 CSRF | **Verified** (route layer and `/api/auth`) | Foreign `Origin`/cross-site requests to `/api/auth` → `403`; form posts → `415`. |
+| T-22 SQL injection | **Verified** (lint + review) | All Phase 3 queries use the query builder or the `sql` template; no `sql.raw()` (one seed use was caught and removed in self-review). |
+| T-23 Over-exposure | **Verified** for Phase 3 responses | `GET /me` and audit responses built by explicit mappers; tests assert no password hash, session token, or unexpected keys. |
+| T-24 DoS | **Verified** | `413` on `/api/auth` and `/api/v1`; audit list capped at 50; `429` with `Retry-After`. |
+| T-27 Logs | **Verified** | Better Auth's own messages pass through the logger with emails replaced by `[email]` (integration test). |
+| T-28 DB privileges | **Verified** | All integration tests run as the app role; append-only grants tested (T-12). |
+| T-33 Email flooding | **Verified** | Per-email caps on sign-up notices and reset emails hold across IPs. Found during self-review (Phase 3 log, #9). |
+| T-34 Scanner sign-in | **Verified** | Verification sets no session cookie. |
+| T-35 Demo accounts in production | **Verified** | Seed refuses `APP_ENV=production`; admin CLI audited. |
 
 ### After Phase 2
 
@@ -126,18 +153,18 @@ Status moves from **Designed** → **Implemented** (code exists) → **Verified*
 
 ### OWASP checklist from the master prompt
 
-| Prompt checklist item | Threat IDs | Status after Phase 2 |
+| Prompt checklist item | Threat IDs | Status after Phase 3 |
 |---|---|---|
-| Broken access control | T-01 – T-07, T-12 | Designed (Phase 3+) |
-| Injection | T-22 | Implemented (lint guard) |
-| Cross-site scripting | T-21 | Verified at header/lint level; E2E in CI |
-| CSRF | T-20 | Verified at route level |
-| Insecure session management | T-14 – T-18 | Designed (Phase 3) |
-| Exposed credentials | T-26, T-28 | Implemented / verified (schema-level grants) |
-| Sensitive data leakage | T-05, T-23, T-27, T-31 | T-27, T-31 verified; T-05, T-23 Phase 3+ |
-| Missing server-side validation | T-02, T-08, route wrapper (strict Zod) | Route-level validation verified; business rules Phase 3+ |
-| Unsafe dependency usage | T-30 | Implemented |
-| Insecure API endpoints | T-03, T-24, T-25, T-29 | T-24 (body limit), T-25 verified; others Phase 3+ |
+| Broken access control | T-01 – T-07, T-12 | T-02, T-03 (Phase 3 endpoints), T-07 (request-time), T-12 verified; T-01, T-04 – T-06 arrive with orders and delivery (Phases 4–5) |
+| Injection | T-22 | Verified (lint + review of Phase 3 queries) |
+| Cross-site scripting | T-21 | Verified at header/lint level; new forms render user text only through React |
+| CSRF | T-20 | Verified, including login CSRF |
+| Insecure session management | T-14 – T-18, T-34 | Verified; `Secure` cookie flag to confirm on first https deployment |
+| Exposed credentials | T-26, T-28, T-35 | Verified (grants, demo-seed guard); no secrets in source (`.env.example` holds local-only values) |
+| Sensitive data leakage | T-05, T-23, T-27, T-31 | T-23 (Phase 3 responses), T-27, T-31 verified; T-05 Phase 5 |
+| Missing server-side validation | T-02, T-08, route wrapper (strict Zod) | Verified for Phase 3 inputs; DB `CHECK`s back up order math ahead of Phase 4 |
+| Unsafe dependency usage | T-30 | Implemented (audit in CI) |
+| Insecure API endpoints | T-03, T-24, T-25, T-29, T-33 | T-03 (Phase 3), T-24, T-25, T-33 verified; T-29 Phase 6 |
 
 ---
 
@@ -149,4 +176,7 @@ Status moves from **Designed** → **Implemented** (code exists) → **Verified*
 | Compromised admin account | Small admin set; full audit trail | Post-MVP: mandatory 2FA for admins (Better Auth two-factor plugin), shorter admin sessions |
 | Email domain ≠ enrollment | Explicitly not claimed in UI | Future: university SSO if partnership exists |
 | Polling reveals status changes only every ~5 s | Not a security issue; UX tradeoff | SSE later |
-| Hosting/email provider not yet chosen | Credentials not available | Phase 8 decision; until then local-only |
+| Hosting/email provider not yet chosen | Credentials not available | Phase 8 decision; until then local-only. Mail goes to a local outbox folder; deployed environments refuse that transport at startup |
+| Response-time differences could reveal whether an email has an account | Bodies and statuses are identical and per-email limits slow probing. Sign-in already hashes a dummy password for unknown emails (Better Auth), but sign-up and reset requests do different work for existing and new addresses | Measure in Phase 7; even out the slow paths if the difference is measurable |
+| Per-IP limits can be dodged by spoofing `X-Forwarded-For` if the app is ever exposed without a proxy | Per-email limits still hold; the intended host (Vercel) overwrites the header | Confirm proxy behavior in Phase 8 |
+| Admin suspend/unsuspend has no endpoint yet | Suspension is enforced everywhere; only the admin button is missing | Phase 6 (PRD AUTH-7, ADM-3) |

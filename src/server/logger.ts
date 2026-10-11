@@ -26,6 +26,16 @@ function redactPaths(): string[] {
 
 export const REDACTED = "[redacted]";
 
+const EMAIL_PATTERN = /[^\s@<>"'()[\],;:]+@[^\s@<>"'()[\],;:]+\.[^\s@<>"'()[\],;:]+/g;
+
+/**
+ * Key-based redaction can't see inside free-text messages, such as a library logging
+ * "Sign-up attempt for existing email: alex@uh.edu". Scrub addresses out of message strings.
+ */
+export function scrubPersonalData(message: string): string {
+  return message.replace(EMAIL_PATTERN, "[email]");
+}
+
 export function createLogger(options: { level?: string } = {}, destination?: DestinationStream): Logger {
   const config: LoggerOptions = {
     level: options.level ?? process.env.LOG_LEVEL ?? "info",

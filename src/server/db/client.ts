@@ -37,6 +37,13 @@ export function getDb(): Database {
   return handle().db;
 }
 
+/** Closes the pool (CLI scripts and tests call this so the process can exit). */
+export async function closeDb(): Promise<void> {
+  const current = globalForDb.__coogcraveDb;
+  globalForDb.__coogcraveDb = undefined;
+  await current?.pool.end();
+}
+
 /** Cheap connectivity check used by /api/health. Rejects if the DB is unreachable or slow. */
 export async function pingDatabase(db: Database = getDb(), timeoutMs = 2_000): Promise<void> {
   let timer: NodeJS.Timeout | undefined;

@@ -35,3 +35,29 @@ describe("proxy: per-request CSP nonce", () => {
     expect(matches("/", { "next-router-prefetch": "1" })).toBe(false);
   });
 });
+
+describe("proxy: signed-out redirect for account areas (UX only)", () => {
+  it("sends visitors without a session cookie to sign-in, remembering where they were going", () => {
+    for (const path of ["/profile", "/admin", "/admin/users?page=2", "/courier"]) {
+      const response = proxy(new NextRequest(`http://localhost:3000${path}`));
+      expect(response.status, path).toBe(307);
+      const location = new URL(response.headers.get("location")!);
+      expect(location.pathname).toBe("/sign-in");
+      expect(location.searchParams.get("next")).toBe(path);
+    }
+  });
+
+  it("lets requests with a session cookie through to the page's own server-side check", () => {
+    for (const cookie of ["coogcrave.session_token=abc.def", "__Secure-coogcrave.session_token=abc.def"]) {
+      const response = proxy(new NextRequest("http://localhost:3000/profile", { headers: { cookie } }));
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-security-policy")).toContain("'strict-dynamic'");
+    }
+  });
+
+  it("leaves public pages and look-alike paths alone", () => {
+    for (const path of ["/", "/sign-in", "/profiles-of-restaurants", "/administrator-guide"]) {
+      expect(proxy(new NextRequest(`http://localhost:3000${path}`)).status, path).toBe(200);
+    }
+  });
+});

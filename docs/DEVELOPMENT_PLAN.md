@@ -1,6 +1,6 @@
 # CoogCrave — Development Plan
 
-> **Status:** Approved at Phase 1 (defaults applied to D2–D7); Phase 2 complete pending review · **Last updated:** 2026-10-10
+> **Status:** Approved at Phase 1 (defaults applied to D2–D7); Phase 2 complete and merged; Phase 3 in review · **Last updated:** 2026-10-11
 > Requirement IDs (AUTH-, CAT-, CART-, ORD-, DLV-, TRK-, NTF-, REV-, ADM-, NFR-) refer to `PRODUCT_REQUIREMENTS.md`; threat IDs (T-xx) to `THREAT_MODEL.md`.
 
 ---
@@ -21,8 +21,8 @@ Defaults are what the plan assumes if there's no answer.
 | # | Decision | Default | Impact if changed |
 |---|---|---|---|
 | D1 | Approve the stack (Next.js + Postgres + Better Auth) **or** switch to a Spring Boot API + Next.js frontend | **Approved: Next.js monolith.** ORM changed from Prisma to Drizzle during Phase 2, with approval (`ARCHITECTURE.md` §16) | — |
-| D2 | Real UH venue names vs fictional (Q1) | Real on-campus names, sample menus/prices, no logos, disclaimers | Fictional removes trademark/affiliation risk entirely |
-| D3 | UH-only sign-up domains (Q2) | `uh.edu`, `cougarnet.uh.edu` | — |
+| D2 | Real UH venue names vs fictional (Q1) | ~~Real on-campus names~~ → **Phase 3 seed uses fictional restaurant names** in real UH buildings, sample menus/prices, no logos, disclaimers. Changed from the default; awaiting confirmation at the Phase 3 checkpoint (`ARCHITECTURE.md` §16) | Fictional removes trademark/affiliation risk entirely; switching back only touches `src/server/seed/catalog-data.ts` |
+| D3 | UH-only sign-up domains (Q2) | `uh.edu` and its subdomains (covers `cougarnet.uh.edu`) | — |
 | D4 | Demo shows Kitchen Console live vs auto-advance (Q3) | Kitchen Console live; auto-advance available for rehearsal | — |
 | D5 | Hackathon deadline, team size, who builds what (Q4) | Unknown | Drives the scope-cut ladder (§6) |
 | D6 | Hosting + email accounts (Q5) | Local-only until provided | Phase 8 deployment blocked without them |
@@ -64,6 +64,7 @@ Effort is a rough range of focused hours for one developer working with Claude; 
 **Requirements:** AUTH-1…8, ADM-9 (audit plumbing).
 **Tests:** T-02, T-12, T-14 – T-19, T-28; migrations apply on empty DB; seed idempotency.
 **Exit criteria:** auth E2E (register → verify via outbox → sign in → sign out); role-access matrix passes for existing endpoints.
+**Status:** `IN REVIEW` on `feature/auth-persistence`. All tasks done except the admin suspend endpoint (AUTH-7's "sessions revoked" half), which moves to Phase 6 with the other admin user tools; suspension itself is enforced on every request and at sign-in. Report: `PROGRESS.md`.
 
 ### Phase 4 — Customer experience
 **Tasks:** restaurant list/search/filter, detail + menu, open-hours logic; server cart; option validation; pricing module; quote; order placement (idempotent, snapshots, simulated payment); confirmation; order detail with projections; tracking timeline + polling; order history; customer cancel.
@@ -152,10 +153,10 @@ Cut from the top first. The bottom block is never cut because it's what makes th
 | No Docker daemon in this sandbox | Certain | Low | Native Postgres here, service container in CI, compose file for teammates |
 | No hosting/email credentials (D6) | Medium | Medium | Local file outbox; deployment documented as blocked until credentials exist |
 | Concurrency test flakiness | Low | Medium | Deterministic setup; 20× repeat run at Phase 5 checkpoint |
-| Trademark/affiliation concerns with real venue names (D2) | Low | Medium | Disclaimers, no logos, sample-data badges; switch to fictional if any doubt |
+| Trademark/affiliation concerns with real venue names (D2) | Low | Medium | Disclaimers, no logos, sample-data badges; seed now uses fictional names (pending confirmation) |
 
 ---
 
 ## 8. Next action after approval
 
-Begin Phase 2 on branch `feature/foundation`: scaffold, tooling, CI, and the request wrapper, then stop at the Phase 2 checkpoint with real command output.
+After the Phase 3 checkpoint is approved and `feature/auth-persistence` is merged: Phase 4 (customer experience) on `feature/customer-ordering`, starting with the pure pricing and hours rules and their tests.
