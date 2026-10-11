@@ -51,3 +51,39 @@ Each entry states whether it is an **automated self-review** (performed by Claud
 - E2E (real-browser CSP behavior) and both CI workflows have not executed anywhere yet.
 - `docker-compose.yml` is untested in this environment.
 - `unstable_doesMiddlewareMatch` is an experimental Next.js API; the docs call it `unstable_doesProxyMatch`, which doesn't exist in 16.4.0.
+
+---
+
+## 2026-10-11 · Phase 3 (database, authentication, access control) · Automated self-review
+
+**Scope:** all code on `feature/auth-persistence` (`0c1008e` schema and migrations, `1acb9ac` auth, `20d2801` profile/locations/audit API, `cd715b6` account UI, seeds, admin CLI, `a13b6b0` sign-up flood fix) plus the docs commit. Reviewed by re-reading every changed file against `THREAT_MODEL.md`, by mutation checks (§ below), and by the E2E suite in a real browser. **No human review has occurred yet.**
+
+| # | Area | Finding | Severity | Correction | Verification |
+|---|---|---|---|---|---|
+| 1 | Security / test validity | Better Auth switches its origin and CSRF checks **off** when `NODE_ENV=test`, so the suite was testing weaker behavior than production; off-site `callbackURL`s were accepted (302/200 instead of 403) | High | `disableOriginCheck: false` and `disableCSRFCheck: false` pinned explicitly | Open-redirect and login-CSRF integration tests now pass and fail correctly |
+| 2 | Security | Password policy accepted passwords made of the user's own name (`alex-rivera-2026`, `Alex.Rivera.07`): zxcvbn scored them ≥ 3 because it didn't know the name | Medium | Name/email words passed to zxcvbn as user inputs, plus a word-break check that refuses passwords made only of personal words and digits/symbols | Unit tests for both shapes; integration sign-up test |
+| 3 | Test validity | Audit pagination test used millisecond-spaced timestamps, so it couldn't catch a cursor that dropped microseconds (rows sharing a millisecond skipped) | Medium | Test inserts rows sharing a millisecond; cursor carries Postgres's microsecond timestamp | Mutation: millisecond cursor → test fails; restored → passes |
+| 4 | HTTP semantics | Root `loading.tsx` made every page stream, so `/admin` answered **200** to students (instead of 404) and protected pages couldn't send a real 307 | Medium | Removed root `loading.tsx`; loading states go inside pages | E2E asserts the 404 status; documented in `ARCHITECTURE.md` §11, §16 |
+| 5 | Own lint rule | A seed used `sql.raw()`, which our own lint rule bans | Medium | Replaced with plain values and `eq()`; no raw SQL anywhere in Phase 3 code | `pnpm lint`; grep |
+| 6 | Correctness | Config errors said "is required" for variables that were set but invalid when the field had a default | Low | Message chosen from the issue type and whether the variable was present | Unit test |
+| 7 | Accessibility | Password reveal button had an empty accessible name in jsdom (text split across a child span); Chromium computed the header profile link as "Alex : your account" | Low | Explicit `aria-label`s ("Show password"/"Hide password", "Alex: your account") | Component test and E2E query by role and name |
+| 8 | Test hygiene | A test helper swallowed an error with `.catch(() => undefined)` (silent suppression, which the master prompt forbids) | Low | Removed; the operation's failure now fails the test | Suite passes without it |
+| 9 | Security | **Email flooding:** sign-up for an existing address emails its owner a notice, and sign-up had only a per-IP limit, so a distributed attacker could flood one inbox | Medium | Per-email sign-up limit (5/hour) alongside the per-IP one (`THREAT_MODEL.md` T-33) | Integration test: cap holds across rotating IPs; unit test of the rule table |
+| 10 | Layout | Mobile header wrapped onto two lines at 360 px; "(confirmed)" broke mid-word on the profile page | Low | "Create account" hidden below `sm` (sign-in stays); `whitespace-nowrap` on the badge | Screenshots at mobile and desktop widths |
+| 11 | Test correctness | `"Spring2027!!"` was listed as a password the policy must refuse, but zxcvbn genuinely scores it 3 | Low | Replaced with `"Spring2027!"`, which scores below 3. The policy wasn't weakened; the example was wrong | Unit test |
+| 12 | Test support | Email-link helper prefixed `/api/auth` twice; Vitest component project loaded the React plugin twice | Low | Helper accepts full paths; duplicate plugin removed | Suite output clean |
+| 13 | Docs | Phase 1 docs claimed single-use verification links (they're signed JWTs, reusable within 24 h) and sliding sessions (now fixed 7-day); several docs cited the wrong requirement for user suspension | Low | `THREAT_MODEL.md` T-17, PRD AUTH-3, `ARCHITECTURE.md` §8 corrected; ADM-3 cited | Re-read against code |
+
+**Design points checked and kept**
+- Verification links can be reopened within 24 h: they only re-confirm the same address and never create a session (T-17, T-34). Making them single-use would need a custom token store for no security gain.
+- Per-IP limits trust the first `X-Forwarded-For` entry. Correct behind Vercel, which overwrites it; per-email limits don't depend on it. Documented in `client-ip.ts` and T-14; confirm at deployment.
+- The admin **API** answers `403` to non-admins while admin **pages** answer `404`. The API's callers already know the endpoint exists; the pages shouldn't advertise it.
+- Better Auth's `/update-user` is disabled, so every profile change goes through `PATCH /api/v1/me` with our strict schema.
+- `order_status_events` cascades on order delete even though the app role can't delete events directly: Postgres runs referential actions as the table owner. Needed for demo reset (Phase 6); tested.
+
+**Remaining concerns**
+- The `Secure` cookie flag is only set over https, which no test environment uses; confirm on the first deployment.
+- Response-time differences between existing and new emails aren't measured (T-15, residual risk in `THREAT_MODEL.md` §6).
+- Phase 3 CI hasn't run on GitHub yet; it runs when `feature/auth-persistence` is pushed.
+- Suspension doesn't delete sessions until the Phase 6 admin endpoint exists (it's enforced on every request meanwhile).
+- Better Auth 1.7.7 is recent; behavior we rely on (origin checks, `disabledPaths`, enumeration-safe answers, cookie attributes) is pinned by integration tests, so an upgrade that changes it will fail CI rather than slip through.

@@ -1,7 +1,7 @@
 # CoogCrave — Database Design
 
-> **Status:** Draft for Phase 1 architecture checkpoint · **Last updated:** 2026-10-10
-> PostgreSQL 16 · Drizzle ORM 0.45 (changed from Prisma in Phase 2; see `ARCHITECTURE.md` §16) · This is the target schema; Phase 3 implements it and this file is updated to match the committed migrations.
+> **Status:** Implemented in Phase 3 · **Last updated:** 2026-10-11
+> PostgreSQL 16 · Drizzle ORM 0.45 (changed from Prisma in Phase 2; see `ARCHITECTURE.md` §16) · Every table below exists in the committed migrations (`db/migrations/0000_initial_schema.sql`, `0001_app_role_append_only.sql`). The Drizzle schema in `src/server/db/schema/` is the source of truth; this file explains it. Tables for later features (cart, orders, delivery, reviews) are created now so their constraints are tested from day one; the services that write them arrive in Phases 4–6.
 
 ---
 
@@ -9,14 +9,17 @@
 
 | Topic | Rule | Why |
 |---|---|---|
-| Primary keys | `uuid` with DB default `gen_random_uuid()` for application tables; Better Auth tables use the library's string IDs | Non-sequential IDs can't be enumerated by guessing `/orders/1235` |
+| Primary keys | `uuid` with DB default `gen_random_uuid()` for **every** table, including the auth tables (Better Auth is configured with `generateId: "uuid"`) | Non-sequential IDs can't be enumerated by guessing `/orders/1235`; one ID type means every `user_id` foreign key is a real `uuid` FK |
 | Money | **Integer cents** (`integer`), currency fixed to `USD` on orders | Floating point can't represent $0.10 exactly; rounding errors in totals are unacceptable. Like a cashier counting pennies in a drawer instead of estimating fractions of a dollar. |
 | Rates | Basis points (`integer`, 825 = 8.25%) | Keeps rate math in integers; rounding rule is explicit (round half up, once, at the line it applies to) |
 | Time | `timestamptz`; `created_at` defaults to `now()` in the DB; `updated_at` set server-side by Drizzle (`$onUpdate`) | Clients never supply timestamps |
 | Names | `snake_case` tables/columns in SQL, `camelCase` properties in the Drizzle schema (`src/server/db/schema/`) | Idiomatic SQL, idiomatic TS |
 | Soft delete | `deleted_at timestamptz NULL` on catalog data (restaurants, menu categories/items/options, campus locations) | Orders keep valid foreign keys to items that were "removed" from the menu |
 | Not soft-deleted | Orders, events, payments, reviews, audit events are never deleted; users are **suspended**, not deleted | History and accountability |
-| Constraints in the schema | Partial unique indexes (`uniqueIndex().on(...).where(...)`) and `CHECK` constraints (`check(...)`) are declared in the Drizzle schema, so they appear in generated migrations and drift checks like any other column | The DB enforces invariants even if application code has a bug |
+| Constraints in the schema | Partial unique indexes (`uniqueIndex().on(...).where(...)`) and `CHECK` constraints (`check(...)`) are declared in the Drizzle schema, so they appear in generated migrations and drift checks like any other column (34 `CHECK`s today) | The DB enforces invariants even if application code has a bug |
+| Text lengths | User-supplied text uses `varchar(n)` with the limits shown below; the API validates the same limits first so users see a friendly message | A second wall behind the API's validation |
+| Same-restaurant rule | Rows that must stay inside one restaurant carry `restaurant_id` and use **composite foreign keys** `(x_id, restaurant_id)` → `parent (id, restaurant_id)` | The database itself refuses "a Smash & Shake burger in a Noodle Line cart" |
+| Grants | The app connects as `coogcrave_app` (DML only, no DDL). Migrations run as the owner role | A SQL injection can't drop tables; append-only tables are enforced by grants (§4.12) |
 
 ---
 
@@ -73,14 +76,28 @@ erDiagram
 
 Abbreviations: **PK** primary key · **FK** foreign key · **U** unique · **NN** not null · **IDX** index.
 
-### 4.1 Identity (Better Auth managed)
+### 4.1 Identity (Better Auth 1.7.7)
 
-Better Auth owns `user`, `session`, `account` (holds the password hash for email/password sign-in), and `verification` (email-verification and reset tokens). Exact columns come from the pinned Better Auth version via its schema generator. We add two fields to `user`, both declared `input: false` so no client request can set them:
+Better Auth reads and writes four tables through the Drizzle adapter (plural names: `usePlural: true`). We wrote them in our own schema file (`schema/auth.ts`) instead of using the library's generator, so they follow our conventions; the integration tests prove Better Auth works against them.
+
+**`users`**
 
 | Column | Type | Notes |
 |---|---|---|
-| `role` | `user_role` NN default `STUDENT` | Only seed/CLI can create `ADMIN` |
-| `suspended_at` | `timestamptz` NULL | Set by admin; sessions deleted on suspend |
+| `id` | uuid | PK |
+| `name` | varchar(100) | NN (also checked in a sign-up hook: 1–100 characters after trimming, no control characters or `< >`) |
+| `email` | varchar(254) | **U** NN; **`CHECK email = lower(email)`** so `Alex@uh.edu` and `alex@uh.edu` can't be two accounts |
+| `email_verified` | boolean | NN default false |
+| `image` | text | NULL (unused; required by Better Auth) |
+| `role` | `user_role` | NN default `STUDENT`. Declared `input: false`: no request can set it. Only the seed and `pnpm admin:create` make admins |
+| `suspended_at` | timestamptz | NULL. `input: false`. A suspended user can't start a session (checked in a session-create hook) and every request re-reads it |
+| `created_at`, `updated_at` | timestamptz | |
+
+**`sessions`** — `id`, `user_id` FK ON DELETE CASCADE, `token` **U**, `expires_at`, `ip_address`, `user_agent`, timestamps. Fixed 7-day lifetime (not extended by activity). IDX `(user_id)`.
+
+**`accounts`** — `id`, `user_id` FK ON DELETE CASCADE, `account_id`, `provider_id` (`credential` for email/password), `password` (scrypt hash, via Better Auth; only the auth library and the account helpers in `src/server/accounts` write it, and nothing outside Better Auth reads it), OAuth token columns (unused, kept for the adapter), timestamps. U `(provider_id, account_id)`.
+
+**`verifications`** — `id`, `identifier`, `value`, `expires_at`, timestamps. Holds password-reset tokens; with `storeIdentifier: "hashed"`, the identifier is stored as a hash, so a database leak doesn't reveal live reset tokens. (Email-verification links are signed JWTs and aren't stored here; see `THREAT_MODEL.md` T-17.) IDX `(identifier)`.
 
 ### 4.2 `campuses`
 Configuration per campus. One row (UH main campus) in the MVP; exists so multi-campus is a data change, not a migration.
@@ -104,17 +121,19 @@ App-level profile kept separate from auth tables so changing auth providers neve
 
 | Column | Type | Constraints / notes |
 |---|---|---|
-| `user_id` | text | PK, FK → `user.id` ON DELETE CASCADE |
-| `display_name` | text | NULL, ≤ 60 chars |
-| `default_location_id` | uuid | FK → `campus_locations.id`, NULL |
+| `user_id` | uuid | PK, FK → `users.id` ON DELETE CASCADE |
+| `display_name` | varchar(60) | NULL (API also refuses control characters and `< >`) |
+| `default_location_id` | uuid | FK → `campus_locations.id`, NULL (the service only accepts active drop points) |
 | `created_at`, `updated_at` | timestamptz | |
+
+The row is created on the user's first profile save (upsert); `GET /me` treats a missing row as empty fields.
 
 ### 4.4 `courier_profiles`
 
 | Column | Type | Constraints / notes |
 |---|---|---|
 | `id` | uuid | PK |
-| `user_id` | text | **U** NN, FK → `user.id` |
+| `user_id` | uuid | **U** NN, FK → `users.id` |
 | `status` | courier_status | NN default `PENDING` |
 | `transport_mode` | transport_mode | NN |
 | `guidelines_accepted_at` | timestamptz | NN |
@@ -122,7 +141,7 @@ App-level profile kept separate from auth tables so changing auth providers neve
 | `online_since` | timestamptz | NULL |
 | `applied_at` | timestamptz | NN default now() |
 | `reviewed_at` | timestamptz | NULL |
-| `reviewed_by_user_id` | text | FK → `user.id`, NULL |
+| `reviewed_by_user_id` | uuid | FK → `users.id`, NULL |
 | `review_note` | text | NULL, ≤ 500 |
 | `created_at`, `updated_at` | timestamptz | |
 
@@ -135,14 +154,14 @@ Implements "delivery locations." Buildings and landmarks on campus; used both as
 |---|---|---|
 | `id` | uuid | PK |
 | `campus_id` | uuid | FK NN |
-| `name` | text | NN (e.g., "MD Anderson Library — main entrance") |
-| `short_name` | text | NN (shown on courier offers) |
+| `name` | varchar(120) | NN (e.g., "MD Anderson Library") |
+| `short_name` | varchar(40) | NN (shown on courier offers) |
 | `description` | text | NULL (landmark hints) |
 | `is_drop_point` | boolean | NN default true |
 | `sort_order` | integer | NN default 0 |
-| `deleted_at` | timestamptz | NULL |
+| `created_at`, `updated_at`, `deleted_at` | timestamptz | |
 
-U: `(campus_id, name) WHERE deleted_at IS NULL`.
+U: `(campus_id, name) WHERE deleted_at IS NULL`. Restaurants' pickup buildings are rows with `is_drop_point = false` when they aren't also drop points.
 
 ### 4.6 Catalog
 
@@ -153,7 +172,7 @@ U: `(campus_id, name) WHERE deleted_at IS NULL`.
 | `id` | uuid | PK |
 | `campus_id` | uuid | FK NN |
 | `location_id` | uuid | FK → `campus_locations` NN (pickup building) |
-| `slug` | text | U NN |
+| `slug` | text | U NN, `CHECK` lowercase-and-hyphens format |
 | `name` | text | NN |
 | `description` | text | NULL |
 | `image_path` | text | NULL (local asset under `/public/images/sample/`) |
@@ -204,9 +223,13 @@ A group with `min_select = 1, max_select = 1` is a required single choice; `0..3
 
 ### 4.7 Cart (server-side)
 
-**`carts`** — `id`, `user_id` **U** FK, `restaurant_id` FK NN, `created_at`, `updated_at`. One cart per user, one restaurant per cart.
+**`carts`** — `id`, `user_id` **U** FK ON DELETE CASCADE, `restaurant_id` FK NN, `created_at`, `updated_at`. One cart per user, one restaurant per cart. U `(id, restaurant_id)` (target of the composite FK below).
 
-**`cart_items`** — `id`, `cart_id` FK ON DELETE CASCADE, `menu_item_id` FK, `quantity` (`CHECK 1–20`), `special_instructions` (≤ 140), `created_at`.
+**`cart_items`** — `id`, `cart_id`, `restaurant_id`, `menu_item_id`, `quantity` (`CHECK 1–20`), `special_instructions` varchar(140), `created_at`.
+- Composite FK `(cart_id, restaurant_id)` → `carts (id, restaurant_id)` ON DELETE CASCADE
+- Composite FK `(menu_item_id, restaurant_id)` → `menu_items (id, restaurant_id)`
+
+Together they make "an item from a different restaurant than the cart" impossible at the database level.
 
 **`cart_item_options`** — PK `(cart_item_id, menu_option_id)`, cascade on cart item delete.
 
@@ -219,8 +242,8 @@ Carts store **no prices**; every read computes current prices, so a menu change 
 | Column | Type | Constraints / notes |
 |---|---|---|
 | `id` | uuid | PK |
-| `order_number` | text | **U** NN — short human-friendly code (e.g., `CC-7K3Q9`), random, retried on collision |
-| `customer_id` | text | FK → `user.id` NN |
+| `order_number` | text | **U** NN — short human-friendly code (e.g., `CC-7K3Q9`), random, retried on collision; `CHECK` format `^CC-[0-9A-Z]{5,12}$` |
+| `customer_id` | uuid | FK → `users.id` NN |
 | `campus_id` | uuid | FK NN |
 | `restaurant_id` | uuid | FK NN |
 | `restaurant_name_snapshot` | text | NN |
@@ -230,14 +253,15 @@ Carts store **no prices**; every read computes current prices, so a menu change 
 | `status` | order_status | NN default `PLACED` |
 | `status_updated_at` | timestamptz | NN default now() |
 | `subtotal_cents`, `delivery_fee_cents`, `service_fee_cents`, `tax_cents`, `tip_cents`, `total_cents` | integer | NN, each `CHECK ≥ 0`; **`CHECK total_cents = subtotal_cents + delivery_fee_cents + service_fee_cents + tax_cents + tip_cents`** |
-| `currency` | char(3) | NN default `USD` |
+| `currency` | char(3) | NN default `USD`, `CHECK = 'USD'` |
 | `idempotency_key` | uuid | NN |
 | `request_hash` | char(64) | NN (SHA-256 of canonical request body) |
-| `version` | integer | NN default 0 (incremented on every transition) |
+| `version` | integer | NN default 0, `CHECK ≥ 0` (incremented on every transition) |
 | `created_at`, `updated_at` | timestamptz | |
 
 Constraints and indexes:
 - **U `(customer_id, idempotency_key)`** — duplicate-submit protection.
+- U `(id, restaurant_id)` — target of `order_items`' composite FK.
 - IDX `(customer_id, created_at DESC)` — order history.
 - IDX `(status_updated_at) WHERE status = 'READY_FOR_PICKUP'` — courier offers query.
 - IDX `(status, created_at DESC)` — admin order list.
@@ -248,9 +272,10 @@ Constraints and indexes:
 | Column | Type | Constraints / notes |
 |---|---|---|
 | `id` | uuid | PK |
-| `order_id` | uuid | FK NN |
-| `menu_item_id` | uuid | FK NN (soft-deleted items keep the reference valid) |
-| `name_snapshot` | text | NN |
+| `order_id` | uuid | NN; composite FK `(order_id, restaurant_id)` → `orders (id, restaurant_id)` ON DELETE CASCADE |
+| `restaurant_id` | uuid | NN |
+| `menu_item_id` | uuid | NN; composite FK `(menu_item_id, restaurant_id)` → `menu_items (id, restaurant_id)` (soft-deleted items keep the reference valid) |
+| `name_snapshot` | varchar(80) | NN |
 | `unit_price_cents` | integer | NN `CHECK ≥ 0` |
 | `options_total_cents` | integer | NN `CHECK ≥ 0` |
 | `quantity` | integer | NN `CHECK 1–20` |
@@ -259,20 +284,22 @@ Constraints and indexes:
 
 **`order_item_options`** — `id`, `order_item_id` FK, `menu_option_id` FK, `group_name_snapshot`, `option_name_snapshot`, `price_delta_cents` (`CHECK ≥ 0`).
 
-**`order_status_events`** — append-only history; the tracking timeline reads this.
+**`order_status_events`** — append-only history; the tracking timeline reads this. The app role has no `UPDATE`/`DELETE`/`TRUNCATE` on it (migration `0001`).
 
 | Column | Type | Constraints / notes |
 |---|---|---|
 | `id` | uuid | PK |
-| `order_id` | uuid | FK NN |
+| `order_id` | uuid | FK NN, ON DELETE CASCADE (see below) |
 | `from_status` | order_status | NULL (null for the creation event) |
 | `to_status` | order_status | NN |
 | `actor_type` | actor_type | NN |
-| `actor_user_id` | text | FK → `user.id`, NULL (null for SYSTEM / auto-advance) |
-| `reason` | text | NULL, ≤ 300 (required for cancellations/failures by the state machine) |
+| `actor_user_id` | uuid | FK → `users.id`, NULL; **`CHECK`: required unless `actor_type` is `SYSTEM` or `RESTAURANT_SIM`** |
+| `reason` | varchar(300) | NULL (required for cancellations/failures by the state machine) |
 | `created_at` | timestamptz | NN default now() |
 
 IDX `(order_id, created_at)`.
+
+**Why child rows cascade when an order is deleted:** the app never deletes orders, except demo reset (Phase 6) clearing demo accounts' orders. Postgres runs `ON DELETE CASCADE` as the table owner, so that delete works even though the app role can't delete events directly. Like shredding a whole case file: you can't pull pages out one at a time, but the file goes as a unit. `payments`, `delivery_assignments`, `delivery_offer_declines`, `reviews`, and order `notifications` cascade the same way.
 
 ### 4.9 Delivery
 
@@ -287,11 +314,11 @@ IDX `(order_id, created_at)`.
 | `picked_up_at` | timestamptz | NULL |
 | `ended_at` | timestamptz | NULL — **NULL means active** |
 | `end_reason` | assignment_end_reason | NULL; `CHECK ((ended_at IS NULL) = (end_reason IS NULL))` |
-| `payout_cents` | integer | NULL; `CHECK (payout_cents IS NULL OR end_reason = 'DELIVERED')` — simulated |
+| `payout_cents` | integer | NULL; `CHECK (payout_cents IS NULL OR (end_reason = 'DELIVERED' AND payout_cents ≥ 0))` — simulated |
 
 **Concurrency invariants (declared in the Drizzle schema; generated SQL shown):**
-- `CREATE UNIQUE INDEX one_active_assignment_per_order ON delivery_assignments (order_id) WHERE ended_at IS NULL;`
-- `CREATE UNIQUE INDEX one_active_assignment_per_courier ON delivery_assignments (courier_id) WHERE ended_at IS NULL;`
+- `CREATE UNIQUE INDEX delivery_assignments_one_active_per_order ON delivery_assignments (order_id) WHERE ended_at IS NULL;`
+- `CREATE UNIQUE INDEX delivery_assignments_one_active_per_courier ON delivery_assignments (courier_id) WHERE ended_at IS NULL;`
 
 History of releases/reassignments is preserved because ended rows stay. IDX `(courier_id, assigned_at DESC)` for courier history.
 
@@ -321,22 +348,23 @@ The unique `order_id` makes duplicate reviews impossible even under double-submi
 
 ### 4.12 Operations
 
-**`audit_events`** — append-only (the app DB role has no `UPDATE`/`DELETE` grant on this table).
+**`audit_events`** — append-only: migration `0001_app_role_append_only.sql` revokes `UPDATE`, `DELETE`, and `TRUNCATE` from the app role, so even a bug or an injected query running as the app can't rewrite history. Tested in `tests/integration/schema-constraints.test.ts`.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid | PK |
-| `actor_user_id` | text | FK NN |
-| `action` | text | NN, dotted verb (`courier.approve`, `order.cancel`, `menu_item.update`, `demo.reset`) |
-| `target_type` | text | NN |
+| `actor_type` | actor_type | NN; **`CHECK` in (`ADMIN`, `SYSTEM`)** |
+| `actor_user_id` | uuid | FK → `users.id`, NULL; **`CHECK`: required when `actor_type = 'ADMIN'`**. `SYSTEM` rows (CLI, scheduled jobs) have no user and name their source in `metadata.via` |
+| `action` | varchar(64) | NN; **`CHECK` dotted lowercase format** (`user.create_admin`, `courier.approve`, `demo.reset`) |
+| `target_type` | varchar(40) | NN |
 | `target_id` | text | NN |
 | `metadata` | jsonb | NN default `{}` — changed fields (before/after), reason; never secrets |
-| `request_id` | text | NULL |
-| `created_at` | timestamptz | NN default now() |
+| `request_id` | varchar(64) | NULL |
+| `created_at` | timestamptz | NN default now() (microsecond precision; the API's pagination cursor uses it) |
 
 IDX `(created_at DESC)`, `(target_type, target_id)`.
 
-**`rate_limit_buckets`** — PK `(key, window_start)`, `count integer`. Fixed-window counters written with `INSERT … ON CONFLICT DO UPDATE SET count = count + 1 RETURNING count`. Old windows pruned opportunistically.
+**`rate_limit_buckets`** — PK `(key, window_start)`, `count integer`, IDX `(window_start)`. `key` is `rule name + ":" + SHA-256 of the trimmed, lowercased subject` (first 32 hex characters), so raw IPs and emails are never stored. Written with one atomic `INSERT … ON CONFLICT DO UPDATE SET count = count + 1 RETURNING count`; about 1 in 100 writes also deletes expired windows.
 
 ---
 
@@ -349,6 +377,7 @@ IDX `(created_at DESC)`, `(target_type, target_id)`.
 | Any transition | `orders` (CAS + `version`), `order_status_events`, `notifications`, maybe `delivery_assignments`, `payments`, `audit_events` | CAS on expected from-status |
 | Review | `reviews` | Unique `order_id`; service checks `DELIVERED` and ownership |
 | Admin mutation | target table + `audit_events` | Append-only grants on `audit_events` |
+| Create/promote admin (CLI, Phase 3) | `users`, `accounts`, `audit_events` | One transaction; the audit row is written or nothing is |
 
 ---
 
@@ -358,14 +387,20 @@ IDX `(created_at DESC)`, `(target_type, target_id)`.
 - Deployed environments run `pnpm db:migrate` (`drizzle-kit migrate`, migrator role) as an explicit pipeline step, never at app startup.
 - **Destructive changes follow expand → migrate data → contract** across separate migrations (e.g., add new column, backfill, switch reads, drop old column later). Each PR that alters or drops columns states its rollback plan in the PR template.
 - drizzle-kit doesn't generate down-migrations; rollback means a new forward migration. Dropping and recreating a database is acceptable **only** in development/test (the integration harness refuses databases whose names don't end in `_test`).
+- **Hand-written migrations** are allowed for things drizzle-kit can't express (grants). They're created with `drizzle-kit generate --custom` so the journal and snapshots stay consistent, and they explain themselves in a header comment. `0001_app_role_append_only.sql` is the first one; it requires the `coogcrave_app` role to exist and fails loudly otherwise.
 
 ---
 
 ## 7. Seed data
 
-- `pnpm db:seed` — deterministic and idempotent (fixed UUIDs, upserts): the UH campus row, cuisines, campus locations, sample restaurants with hours, menus, option groups.
-- `pnpm db:seed:demo` — demo accounts on the reserved `.test` domain (e.g., `customer@demo.coogcrave.test`, `courier@demo.coogcrave.test` approved, `applicant@demo.coogcrave.test` pending, `admin@demo.coogcrave.test`). Passwords come from `SEED_DEMO_PASSWORD` in `.env`, never from source code. Refuses to run when `APP_ENV=production`.
-- All seeded restaurants have `is_sample_data = true`. Whether they use real on-campus venue names is open question Q1 (`PRODUCT_REQUIREMENTS.md` §10); either way menus, prices, hours, and images are sample data and the UI says so.
+| Command | What it writes | Safe to re-run? |
+|---|---|---|
+| `pnpm db:seed` | The UH campus row (sample fees: $2.49 delivery, 5% service fee between $0.50 and $3.00, 8.25% sample tax, $5 minimum, $50 max tip), 13 real UH buildings as drop points, 9 cuisines, 6 **fictional** sample restaurants with hours, 21 menu items (one marked unavailable), and option groups | Yes. IDs are derived from stable keys (`seedId("restaurant:smash-and-shake")`), rows are upserted, and each restaurant's hours are replaced, so a second run leaves the same data |
+| `pnpm db:seed:demo` | Four demo accounts on the reserved `.test` domain: `customer@`, `courier@` (approved courier), `applicant@` (pending courier), `admin@` — all `@demo.coogcrave.test`, all email-verified | Yes. Resets their passwords to `SEED_DEMO_PASSWORD` (from `.env`, 10+ characters, never in source). **Refuses when `APP_ENV=production`** |
+| `pnpm admin:create --email <e> --name <n>` | Creates a verified admin account, or promotes an existing one (which keeps its own password), and writes a `SYSTEM` audit event (`user.create_admin` / `user.promote_admin`, `metadata.via = "cli:admin:create"`) | Yes. The password comes from `ADMIN_PASSWORD` or a hidden prompt, never a command-line argument (which would land in shell history); a new account's password must pass the password policy |
+
+- All seeded restaurants have `is_sample_data = true` and invented names (decision D2, `DEVELOPMENT_PLAN.md`; answers PRD Q1). The buildings are real UH places, because delivery destinations should be recognizable; menus, prices, hours, and images are sample data and the UI says so.
+- Demo emails use `.test`, a top-level domain reserved so it can never receive real mail.
 
 ---
 
@@ -376,5 +411,5 @@ IDX `(created_at DESC)`, `(target_type, target_id)`.
 | `orders.delivery_instructions` | Set to NULL 30 days after the order reaches a terminal status |
 | Courier access to customer details | Active assignment + 24 h after it ends (enforced in the service projection) |
 | `audit_events` | 1 year |
-| Sessions | Expire after 7 days of inactivity; deleted on suspend / sign-out |
+| Sessions | Expire 7 days after sign-in (fixed, not extended by activity); deleted on sign-out and password reset. Suspension blocks them on the next request; deleting them on suspend arrives with the admin suspend endpoint (Phase 6) |
 | Account deletion (on request) | User row anonymized; orders retained without personal data |

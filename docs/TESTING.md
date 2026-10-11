@@ -1,6 +1,6 @@
 # CoogCrave — Testing
 
-> **Last updated:** 2026-10-10 (Phase 2). Describes what exists now; each phase adds to it.
+> **Last updated:** 2026-10-11 (Phase 3). Describes what exists now; each phase adds to it.
 
 ## 1. Test layers
 
@@ -9,29 +9,69 @@
 | Unit | `tests/unit/**/*.test.ts` | Node | None: pure logic, dependencies injected | `pnpm test:unit` |
 | Component | `tests/component/**/*.test.tsx` | jsdom + React Testing Library | None | `pnpm test:component` |
 | Integration | `tests/integration/**/*.test.ts` | Node | **Real Postgres** (`coogcrave_test`), connected as the app role | `pnpm test:integration` |
-| E2E | `tests/e2e/**/*.spec.ts` | Playwright: Pixel 7 + Desktop Chrome profiles | `coogcrave_dev` behind a production build | `pnpm test:e2e` |
+| E2E | `tests/e2e/**/*.spec.ts` | Playwright: Pixel 7 + Desktop Chrome profiles | `coogcrave_dev` (seeded) behind a production build | `pnpm test:e2e` |
 
 `pnpm test` runs the first three; `pnpm test:coverage` runs them with the coverage gate.
 
 ### Why integration tests use a real database
 
-Most of CoogCrave's correctness guarantees live in Postgres: CHECK constraints on totals, partial unique indexes that stop two couriers winning one order, and role grants that keep the app from changing the schema. Mocked databases can't fail in those ways, so they can't prove those guarantees. Mocks are used only at true external boundaries (email, payments).
+Most of CoogCrave's correctness guarantees live in Postgres: CHECK constraints on totals, partial unique indexes that stop two couriers winning one order, and role grants that keep the app from changing the schema. Mocked databases can't fail in those ways, so they can't prove those guarantees. Mocks are used only at true external boundaries (email, payments). Email in tests isn't mocked either: the real `FileOutboxMailer` writes to `.data/test-mail`, and tests follow the links in it exactly as a user would.
 
 ## 2. Integration test harness
 
 - `tests/integration/global-setup.ts` applies committed migrations once per run, as the migrator role.
 - `tests/support/integration-env.ts` points the app's `DATABASE_URL` at the test database **as the app role**, so every test exercises production grants.
 - `tests/support/db.ts` provides `openPool(role)` for direct assertions and `resetDatabase()` (truncates all tables as the migrator).
+- `tests/support/http.ts` drives the real route handlers: `appRequest()` builds same-origin requests, `CookieJar` carries the session cookie between calls, and `mailTo()`/`linkIn()` read the outbox. `tests/support/auth.ts` builds on them (`signUp`, `signIn`, `registerVerified`, `signedInUser`). `tests/support/fixtures.ts` inserts campus, location, restaurant, and courier rows directly.
+- Better Auth runs for real (not mocked) with its origin checks pinned on, so tests see production behavior.
 - Files run one at a time (`fileParallelism: false`) because they share one database. Tests inside a file may run concurrent requests (the courier race test in Phase 5 depends on this).
 - **Guardrail:** the harness refuses any database whose name doesn't end in `_test`, so a misconfigured `.env` can't wipe development data.
 
 ## 3. Coverage
 
 - Provider: V8. Scope: `src/server/**` and `src/proxy.ts`.
-- Gate: 80% lines, branches, functions, and statements (CI fails below). Per-folder gates for `src/server/domain` and `src/server/services` are added when those folders exist (Phase 3+).
+- Gates (CI fails below any of them):
+
+| Scope | Lines | Branches | Functions | Statements |
+|---|---|---|---|---|
+| Overall | 80% | 80% | 80% | 80% |
+| `src/server/domain/**` (pure rules) | 95% | 90% | 100% | 95% |
+| `src/server/services/**` | 90% | 80% | 90% | 90% |
 - Coverage is a floor, not proof. Every state transition, authorization boundary, and user journey also gets an explicit test, whatever the percentage says.
 
-## 4. What the Phase 2 tests cover
+## 4. What the Phase 3 tests cover
+
+| Control | Test file | Requirement / threat |
+|---|---|---|
+| Register → email verification → sign-in (cookie attributes) → server-side sign-out; passwords stored only as hashes; emails lowercased | `integration/auth-flow.test.ts` | AUTH-1, 3, 4 · T-16 |
+| Client-supplied `role`/`suspendedAt`/`emailVerified` ignored or refused at sign-up | `integration/auth-security.test.ts` | AUTH-6 · T-02 |
+| Domain allowlist incl. subdomains and look-alikes; password policy; name rules | `integration/auth-security.test.ts`, `unit/domain-auth-rules.test.ts`, `unit/auth-support.test.ts` | AUTH-1, 2 · T-19 |
+| Identical answers for existing/new emails at sign-up, sign-in, and reset | `integration/auth-security.test.ts` | T-15 |
+| Reset: single use, signs out other sessions, made-up tokens refused | `integration/auth-security.test.ts` | AUTH-5 · T-17 |
+| Suspended accounts can't sign in | `integration/auth-security.test.ts` | AUTH-7 · T-07 |
+| Off-site redirects refused (verify, reset); `safeNextPath` | `integration/auth-security.test.ts`, `unit/domain-auth-rules.test.ts` | T-18 |
+| `/api/auth` request hygiene: cross-origin, form bodies, oversize, disabled endpoints, request IDs, no tokens in logs | `integration/auth-security.test.ts`, `unit/auth-route-handler.test.ts` | T-20, T-24, T-27 |
+| Rate limits per IP and per email, across rotating IPs; limiter atomic under concurrency; hashed keys; pruning | `integration/auth-security.test.ts`, `integration/rate-limiter.test.ts`, `unit/auth-support.test.ts` | T-14, T-33 |
+| **Role-access matrix:** every Phase 3 endpoint × anonymous, student, approved courier, admin, suspended, unverified; documented code per denial; role can't be escalated; forged cookie rejected | `integration/role-access.test.ts` | T-03 |
+| Access policy, every level × role × courier status | `unit/domain-auth-rules.test.ts` | T-03 |
+| Page guards: redirect with safe `next`, suspended notice, 404 for missing capability | `unit/page-guards.test.ts` | T-03 |
+| Proxy sends cookie-less visitors to sign-in for protected paths | `unit/proxy.test.ts` | UX only (not a boundary) |
+| Profile read/update, own account only, active drop points only, no sensitive fields | `integration/profile-and-audit.test.ts` | AUTH-8 · T-23 |
+| Audit log: newest first, keyset pages don't skip rows sharing a millisecond, admin actor and request ID recorded, bad cursors refused | `integration/profile-and-audit.test.ts` | ADM-9 · T-12 |
+| Schema constraints: totals, line totals, same-restaurant composite FKs, one active assignment per order/courier, review uniqueness, hours, append-only grants on `audit_events` and `order_status_events` | `integration/schema-constraints.test.ts` | T-08, T-10, T-12, T-13, T-28 |
+| Seeds idempotent; demo seed refuses production; demo accounts sign in through the real flow; `admin:create` creates/promotes and audits, applies the password policy | `integration/seed-and-admin.test.ts` | T-35 |
+| Forms: labels/hints/errors associated, password reveal, browser validation, server errors on the right field, rate-limit and network messages, profile saves only changes | `component/auth-forms.test.tsx` | Accessibility · AUTH-1, 5, 8 |
+| **Browser journeys** (mobile + desktop): register → confirm email → sign in → edit profile → sign out; return to the requested page after sign-in; wrong password; reset through emailed link; students get a real 404 at `/admin`; admins see the activity log | `e2e/auth.spec.ts` | AUTH-1 … 8, T-03 |
+
+### Mutation checks
+
+A passing test only matters if it can fail. During Phase 3 these were broken on purpose, the named test failed, and the code was restored:
+- a `CHECK` constraint dropped from the test database → `schema-constraints.test.ts`
+- the audit cursor switched back to millisecond precision → the pagination test in `profile-and-audit.test.ts`
+
+And one real bug the tests caught on their own: Better Auth switches its origin checks off under `NODE_ENV=test`, so the open-redirect tests failed until the checks were pinned on.
+
+## 5. What the Phase 2 tests cover
 
 | Control | Test file | Threat ID |
 |---|---|---|
@@ -49,22 +89,27 @@ Most of CoogCrave's correctness guarantees live in Postgres: CHECK constraints o
 | App role can't create, alter, drop, or truncate tables | `integration/db-roles.test.ts` | T-28 |
 | CSP produces no violations in a real browser; skip link; 404 page | `e2e/smoke.spec.ts` | T-21 |
 
-## 5. Running locally
+## 6. Running locally
 
 ```bash
 docker compose up -d db        # or: pnpm db:local:up
 cp .env.example .env           # once
+pnpm db:migrate                # once per new migration
 pnpm test                      # unit + component + integration
+pnpm db:seed && pnpm db:seed:demo   # E2E signs in as the demo accounts
 pnpm build && pnpm exec playwright install chromium && pnpm test:e2e
 ```
 
-## 6. CI
+E2E global setup (`tests/e2e/support/global-setup.ts`) clears rate-limit counters on the dev database before each run, so repeated local runs don't trip sign-in limits, and stops with a clear message if the demo accounts are missing. If Playwright's browser download is blocked, point `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` at an installed Chromium.
 
-`.github/workflows/ci.yml` runs on every pull request and push to `main`: locked install, tracked-env check, format, lint, typecheck, audit, migration drift check, migrations against a fresh Postgres 16, unit + component, integration, coverage gate, and a production build. `.github/workflows/e2e.yml` builds the app and runs Playwright. No step suppresses failures (`|| true` and `continue-on-error` aren't used).
+## 7. CI
 
-## 7. Writing new tests
+`.github/workflows/ci.yml` runs on every pull request and push to `main`: locked install, tracked-env check, format, lint, typecheck, audit, migration drift check, migrations against a fresh Postgres 16, unit + component, integration, coverage gate, and a production build. `.github/workflows/e2e.yml` migrates and seeds a fresh database (throwaway CI-only secrets), builds the app, and runs Playwright. No step suppresses failures (`|| true` and `continue-on-error` aren't used).
+
+## 8. Writing new tests
 
 - Business rules go in `src/server/domain` as pure functions, unit-tested exhaustively (e.g. every from × to × actor combination for the order state machine).
 - Services and routes are integration-tested through the real route handler (`GET(new Request(...))`), against the real database.
 - Name tests after the behavior or rule they protect, and reference the requirement or threat ID when there is one.
+- Every new endpoint joins the role-access matrix in `integration/role-access.test.ts` with its expected status for each identity.
 - Never mark a feature complete while any of its tests fail (Definition of Done).

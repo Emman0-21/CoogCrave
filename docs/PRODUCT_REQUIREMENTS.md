@@ -1,6 +1,6 @@
 # CoogCrave — Product Requirements
 
-> **Status:** Draft for Phase 1 architecture checkpoint · **Last updated:** 2026-10-10
+> **Status:** Approved at Phase 1; implementation notes added through Phase 3 · **Last updated:** 2026-10-11
 > **Tagline:** "Cravings Delivered. By Coogs, For Coogs."
 
 CoogCrave is an independent student project built for a University of Houston hackathon. It is **not affiliated with, endorsed by, or operated by the University of Houston** or any restaurant shown in the app. The UI must say so on the landing page and in the footer.
@@ -58,13 +58,13 @@ Each requirement has an ID used in the development plan, tests, and PR template.
 
 | ID | Requirement | Pri |
 |---|---|---|
-| AUTH-1 | Register with name, email, password. Password ≥ 10 chars, checked against a common-password list. | M |
-| AUTH-2 | Email domain must be in `ALLOWED_EMAIL_DOMAINS` (default `uh.edu,cougarnet.uh.edu`, subdomains matched) — configurable so demo/judge accounts can be seeded. | M |
-| AUTH-3 | Email verification by single-use, expiring link. Unverified users can browse but cannot order or apply as courier. | M |
+| AUTH-1 | Register with name, email, password. Password ≥ 10 chars, checked against a common-password list. *Built (Phase 3): 10–128 chars, zxcvbn strength score ≥ 3 (covers common and dictionary passwords), not built from the user's own name or email.* | M |
+| AUTH-2 | Email domain must be in `ALLOWED_EMAIL_DOMAINS` (default `uh.edu,cougarnet.uh.edu`, subdomains matched) — configurable so demo/judge accounts can be seeded. *Built: default `uh.edu`, whose subdomain matching already covers `cougarnet.uh.edu`; demo accounts are created by the seed, not by sign-up.* | M |
+| AUTH-3 | Email verification by single-use, expiring link. Unverified users can browse but cannot order or apply as courier. *Built, with two differences: the link expires after 24 h but can be reopened within that time (it only re-confirms the same address and never signs anyone in; see `THREAT_MODEL.md` T-17), and unverified users can't sign in at all, which is stricter. Browsing stays public.* | M |
 | AUTH-4 | Sign in, sign out, persistent session (httpOnly cookie, server-side session record, revocable). | M |
 | AUTH-5 | Password reset by single-use, expiring emailed link. Responses never reveal whether an email is registered. | S |
 | AUTH-6 | Role and courier status are never accepted from client input at signup or profile update. | M |
-| AUTH-7 | Suspended users are signed out (sessions revoked) and cannot sign in. | S |
+| AUTH-7 | Suspended users are signed out (sessions revoked) and cannot sign in. *Phase 3: suspended users can't sign in and every request with an existing session is refused. The admin action that suspends a user and deletes their sessions ships in Phase 6 (ADM-3).* | S |
 | AUTH-8 | Users can view and edit their display name and default drop point. | S |
 
 ### 4.2 Restaurant discovery (CAT)
@@ -208,7 +208,7 @@ Assumptions are the defaults the plan proceeds with if not answered. Open questi
 
 | # | Question | Default assumption |
 |---|---|---|
-| Q1 | Real UH venue names (with "sample menu — not affiliated" labels) or fictional names? | Real on-campus venue names, generic imagery, sample menus/prices, disclaimer on every card |
+| Q1 | Real UH venue names (with "sample menu — not affiliated" labels) or fictional names? | ~~Real on-campus venue names~~ **Phase 3 seed uses fictional restaurant names in real UH buildings** (decision D2 change, awaiting confirmation), generic imagery, sample menus/prices, disclaimer on every card |
 | Q2 | Restrict sign-up to UH email domains? | Yes in production; demo/judge accounts are seeded |
 | Q3 | Demo: show the Kitchen Console step live, or auto-advance restaurant steps? | Kitchen Console live; an auto-advance toggle exists for rehearsal in non-production only |
 | Q4 | Hackathon date, team size, and who builds what? | Unknown — affects scope cuts in `DEVELOPMENT_PLAN.md` |
