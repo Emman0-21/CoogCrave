@@ -133,3 +133,45 @@ export function SelectField({
     </div>
   );
 }
+
+/** Multi-line text with a live character count, so people see the limit before they hit it. */
+export function TextAreaField({
+  id,
+  label,
+  hint,
+  error,
+  className,
+  maxLength,
+  value,
+  ...textarea
+}: FieldChrome & ComponentProps<"textarea"> & { value: string }) {
+  const remaining = maxLength === undefined ? null : maxLength - value.length;
+  return (
+    <div className={cn("space-y-1.5", className)}>
+      <div className="flex items-baseline justify-between gap-4">
+        <label htmlFor={id} className="block font-bold">
+          {label}
+        </label>
+        {remaining !== null && (
+          <span id={`${id}-count`} className="text-sm text-ink-muted">
+            {remaining} left
+          </span>
+        )}
+      </div>
+      <textarea
+        id={id}
+        value={value}
+        maxLength={maxLength}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={
+          [describedBy(id, hint, error), remaining !== null ? `${id}-count` : null]
+            .filter(Boolean)
+            .join(" ") || undefined
+        }
+        className={cn(CONTROL, "min-h-24", error ? "border-danger-700" : "border-line-strong")}
+        {...textarea}
+      />
+      <FieldText id={id} hint={hint} error={error} />
+    </div>
+  );
+}

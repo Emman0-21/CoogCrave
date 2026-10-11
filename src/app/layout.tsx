@@ -5,6 +5,7 @@ import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { firstName } from "@/server/auth/page-guards";
 import { getCurrentActor } from "@/server/auth/session";
+import { cartItemCount } from "@/server/services/cart";
 
 import { archivo, atkinson } from "./fonts";
 import "./globals.css";
@@ -26,8 +27,14 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   // Every page renders per request so it can carry this request's CSP nonce (src/proxy.ts).
   await connection();
   const actor = await getCurrentActor();
-  const headerUser =
-    actor && !actor.suspended ? { firstName: firstName(actor), isAdmin: actor.role === "ADMIN" } : null;
+  const signedIn = actor && !actor.suspended && actor.emailVerified ? actor : null;
+  const headerUser = signedIn
+    ? {
+        firstName: firstName(signedIn),
+        isAdmin: signedIn.role === "ADMIN",
+        cartCount: await cartItemCount(signedIn.userId),
+      }
+    : null;
 
   return (
     <html lang="en" className={`${archivo.variable} ${atkinson.variable} h-full antialiased`}>

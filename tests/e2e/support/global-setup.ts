@@ -5,6 +5,7 @@ import { Pool } from "pg";
  * Runs once before the E2E suite, against the database the app under test uses (DATABASE_URL):
  *  - clears rate-limit counters, so repeated local runs don't trip the sign-up/sign-in limits
  *  - checks that the demo accounts exist (they come from `pnpm db:seed && pnpm db:seed:demo`)
+ *  - opens The Burger Joint around the clock, so the ordering journey doesn't depend on the time of day
  */
 export default async function globalSetup(): Promise<void> {
   loadEnv({ path: [".env.local", ".env"], quiet: true });
@@ -13,7 +14,7 @@ export default async function globalSetup(): Promise<void> {
   if (!process.env.SEED_DEMO_PASSWORD)
     throw new Error("E2E tests need SEED_DEMO_PASSWORD (see .env.example).");
 
-  const pool = new Pool({ connectionString: url, max: 1 });
+  const pool = new Pool({ connectionString: url, max: 2 });
   try {
     await pool.query("delete from rate_limit_buckets");
     const { rows } = await pool.query<{ n: string }>(
@@ -23,6 +24,32 @@ export default async function globalSetup(): Promise<void> {
       throw new Error(
         "Demo accounts are missing. Run `pnpm db:seed && pnpm db:seed:demo` before `pnpm test:e2e`.",
       );
+    }
+    // The ordering journey needs a restaurant that's open whatever time the suite runs. Open The Burger
+    // Joint all week in this (development) database; `pnpm db:seed` puts its sample hours back.
+    // Two statements: in one statement (a data-modifying CTE) the insert wouldn't see the delete.
+    const client = await pool.connect();
+    let open;
+    try {
+      await client.query("begin");
+      await client.query(
+        `delete from restaurant_hours
+         where restaurant_id in (select id from restaurants where slug = 'the-burger-joint')`,
+      );
+      open = await client.query(
+        `insert into restaurant_hours (restaurant_id, day_of_week, opens_at_minute, closes_at_minute)
+         select r.id, d, 0, 1440 from restaurants r, generate_series(0, 6) as d
+         where r.slug = 'the-burger-joint' and r.deleted_at is null`,
+      );
+      await client.query("commit");
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+    if (open.rowCount !== 7) {
+      throw new Error("The Burger Joint is missing. Run `pnpm db:seed` before `pnpm test:e2e`.");
     }
   } finally {
     await pool.end();

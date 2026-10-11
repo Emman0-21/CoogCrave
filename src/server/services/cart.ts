@@ -471,3 +471,13 @@ export async function clearCart(actor: Actor, db: Database = getDb()): Promise<C
   await db.delete(carts).where(eq(carts.userId, actor.userId));
   return EMPTY_CART;
 }
+
+/** Total quantity in the user's cart, for the header badge. One small query, no pricing. */
+export async function cartItemCount(userId: string, db: Database = getDb()): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`coalesce(sum(${cartItems.quantity}), 0)::int` })
+    .from(cartItems)
+    .innerJoin(carts, eq(carts.id, cartItems.cartId))
+    .where(eq(carts.userId, userId));
+  return row?.count ?? 0;
+}
