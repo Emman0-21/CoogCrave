@@ -1,6 +1,6 @@
 # CoogCrave — Testing
 
-> **Last updated:** 2026-10-11 (Phase 5). Describes what exists now; each phase adds to it.
+> **Last updated:** 2026-10-11 (Phase 6a). Describes what exists now; each phase adds to it.
 
 ## 1. Test layers
 
@@ -41,7 +41,26 @@ Most of CoogCrave's correctness guarantees live in Postgres: CHECK constraints o
 | `src/server/services/**` | 90% | 80% | 90% | 90% |
 - Coverage is a floor, not proof. Every state transition, authorization boundary, and user journey also gets an explicit test, whatever the percentage says.
 
-## 4. What the Phase 5 tests cover
+## 4. What the Phase 6a tests cover
+
+| Control | Test file | Requirement / threat |
+|---|---|---|
+| Courier decisions from every status (only the documented moves), which decisions the screen offers, who an admin may suspend, the demo-reset phrase | `unit/domain-admin-rules.test.ts` | ADM-2, ADM-3 · T-29 |
+| `DEMO_RESET_ENABLED` must be true/false and is refused in production | `unit/config.test.ts` | T-29 |
+| Approve (courier told, can go online, audited), reject with a note (may reapply), suspend (offline, no offers) and reinstate; decisions that don't fit the status (409) or are about yourself (422); no suspension mid-delivery; list by status with delivery counts | `integration/admin.test.ts` | ADM-2 · T-12 |
+| **Race:** suspension vs accept for the same courier, 15 rounds: never both succeed; both orderings observed | `integration/admin.test.ts` | T-07 |
+| Suspend a student: sessions deleted, offline as a courier, audited with the reason; reason required; refuses yourself, other admins, couriers mid-delivery; search, filter, and cursor paging | `integration/admin.test.ts` | ADM-3, AUTH-7 · T-07 |
+| Admin order record (customer, who did what and why, assignments, payment); cancel with reason (payment voided, customer told, audited); unassign before pickup (back to ready, both told, gone from that courier's offers); cancel an assigned order; close a picked-up one as failed; no restaurant or courier moves as ADMIN; list filters | `integration/admin.test.ts` | ADM-6, ADM-8 · T-04, T-12 |
+| Dashboard numbers (orders today by status, couriers online, applications waiting, captured demo payments) | `integration/admin.test.ts` | ADM-1 |
+| Admin projection only for admins; the customer still gets the customer view | `integration/admin.test.ts` | T-01 |
+| Demo reset: off or production → 404 for any caller; removes only demo accounts' orders, carts, notifications; restores profiles, unsuspends, restores the catalog; keeps outsiders' data, passwords, and the audit log; refuses (and rolls back) while a demo courier holds an outside delivery | `integration/demo-reset.test.ts` | ADM-10 · T-29 |
+| Role matrix extended to the 7 new admin endpoints | `integration/role-access.test.ts` | T-03 |
+| Reason dialogs (reason first, body, reload; optional note left out; server explanation and refresh on a stale change; cancel sends nothing), demo reset (exact phrase, result), admin navigation (current section, waiting count), status badge in words | `component/admin-ui.test.tsx` | ADM-2, ADM-3, ADM-8, ADM-10 |
+| **Journey J3 core** (mobile + desktop): a student applies; the admin approves from the queue and the student can go online; a customer orders and the admin cancels it from its record with a reason; the admin suspends an account, which is signed out and can't sign back in, then lifts it; each action is in the activity log | `e2e/admin.spec.ts` | Phase 6a exit criterion · T-07, T-12 |
+
+Mutation checks in Phase 6a (broken on purpose, test failed, restored): the locked re-read of the courier during accept (the suspend-vs-accept race then lets both succeed); the demo-reset guard for a demo courier holding an outside delivery.
+
+## 4a. What the Phase 5 tests cover
 
 | Control | Test file | Requirement / threat |
 |---|---|---|
@@ -61,7 +80,7 @@ Mutation checks in Phase 5 (each broken on purpose, test failed, code restored):
 
 **Flakiness check (exit criterion):** the two concurrency tests were run 20 times in a row (each run is itself 20 rounds): 20/20 green.
 
-## 4a. What the Phase 4 tests cover
+## 4b. What the Phase 4 tests cover
 
 | Control | Test file | Requirement / threat |
 |---|---|---|

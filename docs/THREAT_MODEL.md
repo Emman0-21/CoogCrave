@@ -1,6 +1,6 @@
 # CoogCrave — Threat Model
 
-> **Status:** Approved at Phase 1; control status updated after Phase 5 (§5) · **Last updated:** 2026-10-11
+> **Status:** Approved at Phase 1; control status updated after Phase 6a (§5) · **Last updated:** 2026-10-11
 > Method: assets → actors → trust boundaries → threats (STRIDE) with a mitigation **and a way to verify it**. A control without a verification is listed as unverified, not as done. Re-reviewed at the end of every phase (`CODE_REVIEW_LOG.md`).
 
 ---
@@ -111,6 +111,16 @@ Verification types: **U** unit test · **I** integration test (real DB) · **E**
 
 Status moves from **Designed** → **Implemented** (code exists) → **Verified** (its listed test or check passes). Nothing is called Verified on the strength of a library being installed.
 
+### After Phase 6a
+
+| ID | Status | Evidence |
+|---|---|---|
+| T-03 Route-level access | **Verified** for all admin endpoints | Role matrix extended to the 7 new admin endpoints: anonymous 401, students and couriers 403, admin allowed. Admin pages answer 404 to non-admins (E2E). |
+| T-07 Suspended sessions | **Verified, complete** | Suspending deletes every session; E2E: the suspended student is bounced to sign-in and signing in again is refused. Courier suspension takes them offline; a suspension racing an accept never lets both succeed (15 rounds, both orders seen). |
+| T-12 Audit | **Verified** for every 6a admin action | `courier.<decision>`, `user.suspend/unsuspend` (with reason), `order.admin_<status>` (with reason), `demo.reset` rows naming the admin; shown in the activity log with links. |
+| T-29 Demo reset | **Verified** | Off by default; config refuses `DEMO_RESET_ENABLED=true` in production (unit); service refuses in production or when off (integration); route answers 404 before reading the body; exact phrase required; touches only demo accounts' data; refuses while a demo courier holds an outside delivery (mutation-checked). |
+| Admin self-protection | **Verified** | Admins can't suspend themselves or other admins, or decide on their own courier profile (422). |
+
 ### After Phase 5
 
 | ID | Status | Evidence |
@@ -177,9 +187,9 @@ Status moves from **Designed** → **Implemented** (code exists) → **Verified*
 
 ### OWASP checklist from the master prompt
 
-| Prompt checklist item | Threat IDs | Status after Phase 5 |
+| Prompt checklist item | Threat IDs | Status after Phase 6a |
 |---|---|---|
-| Broken access control | T-01 – T-07, T-12 | T-01 (customers, couriers), T-02 – T-06, T-07 (request-time), T-12 verified; admin projections Phase 6 |
+| Broken access control | T-01 – T-07, T-12 | T-01 – T-07 and T-12 verified (customers, couriers, admins) |
 | Injection | T-22 | Verified (lint + review of Phase 3 queries) |
 | Cross-site scripting | T-21 | Verified at header/lint level; new forms render user text only through React |
 | CSRF | T-20 | Verified, including login CSRF |
@@ -188,7 +198,7 @@ Status moves from **Designed** → **Implemented** (code exists) → **Verified*
 | Sensitive data leakage | T-05, T-23, T-27, T-31 | T-23 (Phase 3 responses), T-27, T-31 verified; T-05 Phase 5 |
 | Missing server-side validation | T-02, T-08, route wrapper (strict Zod) | Verified for Phase 3 inputs; DB `CHECK`s back up order math ahead of Phase 4 |
 | Unsafe dependency usage | T-30 | Implemented (audit in CI) |
-| Insecure API endpoints | T-03, T-24, T-25, T-29, T-33 | T-03 (Phase 3), T-24, T-25, T-33 verified; T-29 Phase 6 |
+| Insecure API endpoints | T-03, T-24, T-25, T-29, T-33 | Verified (T-03 extended to admin endpoints in 6a) |
 
 ---
 

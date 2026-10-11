@@ -1,6 +1,6 @@
 # CoogCrave — API Specification (v1)
 
-> **Status:** Approved at Phase 1; updated through Phase 5 · **Last updated:** 2026-10-11
+> **Status:** Approved at Phase 1; updated through Phase 6a · **Last updated:** 2026-10-11
 > Contracts are designed before implementation. Endpoints marked **(implemented)** match the code and its tests; the rest are the designed contract for later phases. Zod schemas in `src/shared/schemas` and the route files are the source of truth for implemented endpoints.
 
 ---
@@ -93,7 +93,9 @@ Fixed-window counters in Postgres, shared by all server instances (`src/server/r
 | `POST /orders/{id}/transitions` | 60 / min per user | Implemented |
 | Cart mutations and `POST /checkout/quote` | 120 / min per user | Implemented |
 | Courier application, availability, decline | 60 / min per user | Implemented |
-| Reviews | 10 / hour per user | Phase 6 |
+| Admin decisions (courier decisions, suspensions) | 60 / min per admin | Implemented |
+| Demo reset | 5 / 10 min per admin | Implemented |
+| Reviews | 10 / hour per user | Phase 6b |
 
 `/api/health` is exempt (load-balancer polling; it runs only `select 1`).
 
@@ -101,7 +103,7 @@ Fixed-window counters in Postgres, shared by all server instances (`src/server/r
 
 ## 2. Endpoint index
 
-Implemented as of Phase 5: `GET /api/health`, `/api/auth/*`, `GET/PATCH /me`, `GET /locations`, everything in §5–8 except `POST /orders/{id}/review`, and from §10 `GET /admin/audit-events` and `GET /admin/kitchen`. The rest is the designed contract.
+Implemented as of Phase 6a: `GET /api/health`, `/api/auth/*`, `GET/PATCH /me`, `GET /locations`, everything in §5–8 except `POST /orders/{id}/review`, and everything in §10 except restaurant and menu editing (Phase 6b). Notifications (§9) and reviews are Phase 6b. The rest is the designed contract.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
@@ -304,9 +306,9 @@ An empty cart is `{ restaurant: null, items: [], itemCount: 0, subtotalCents: 0,
 - **Query (strict):** `scope=active|past` (default all), `limit` 1–50 (default 20), `cursor`.
 - **Response 200:** `{ "data": [{ "id", "orderNumber", "restaurantName", "status", "totalCents", "itemCount", "createdAt" }], "nextCursor" }`, newest first — **only the caller's own orders**. Same microsecond keyset cursor as the audit log.
 
-### `GET /orders/{orderId}` — user (implemented: customer and courier projections)
+### `GET /orders/{orderId}` — user (implemented: customer, courier, and admin projections)
 
-The customer who placed the order gets the customer projection (now including `courier: { firstName, transportMode } | null`). The courier who holds the delivery, or whose delivery ended within the last 24 hours, gets the courier projection: `{ viewer: "COURIER", id, orderNumber, status, version, restaurant { name, pickupLocation, pickupNotes }, items [{ name, quantity, options[], specialInstructions }], deliveryLocation, deliveryInstructions (null once the delivery ends), customerName ("Alex R." or their display name), timeline [{ status, at }], assignment { assignedAt, pickedUpAt, endedAt, endReason }, payoutCents, payoutIsSimulated, allowedTransitions }` — no prices except the simulated payout, no email, no full name. Everyone else, including couriers who only saw it as an offer, gets `404`. The admin projection arrives in Phase 6.
+The customer who placed the order gets the customer projection (now including `courier: { firstName, transportMode } | null`). The courier who holds the delivery, or whose delivery ended within the last 24 hours, gets the courier projection: `{ viewer: "COURIER", id, orderNumber, status, version, restaurant { name, pickupLocation, pickupNotes }, items [{ name, quantity, options[], specialInstructions }], deliveryLocation, deliveryInstructions (null once the delivery ends), customerName ("Alex R." or their display name), timeline [{ status, at }], assignment { assignedAt, pickedUpAt, endedAt, endReason }, payoutCents, payoutIsSimulated, allowedTransitions }` — no prices except the simulated payout, no email, no full name. Admins get the admin projection of any order: `{ viewer: "ADMIN", …, customer { id, name, email }, items with line totals, price, deliveryInstructions, timeline [{ status, fromStatus, at, actorType, actor { id, name } | null, reason }], assignments [{ courierId, courierName, courierEmail, assignedAt, pickedUpAt, endedAt, endReason, payoutCents }], payment { mode: "DEMO", status, amountCents, reference } | null, allowedTransitions }`. Everyone else, including couriers who only saw it as an offer, gets `404`.
 
 #### 7.1 Projections
 
@@ -318,7 +320,7 @@ The service picks the projection from the viewer's relationship to the order; an
 | `timeline` (status events: status, at, actorType) | ✓ | ✓ | ✓ + actor user + reason |
 | Price breakdown | ✓ | payout only (simulated) | ✓ |
 | `deliveryLocation` | ✓ | ✓ | ✓ |
-| `deliveryInstructions` | ✓ | ✓ while active and ≤ 24 h after | ✓ |
+| `deliveryInstructions` | ✓ | ✓ while active | ✓ |
 | Customer name | — | first name + last initial | full name + email |
 | Courier | first name + transport mode, once assigned | — | full + assignment history |
 | `payment` (provider, status) | `mode: "DEMO"` | — | ✓ |
@@ -331,7 +333,7 @@ Couriers who are not assigned see an order only through `/courier/offers` (offer
 
 ### `POST /orders/{orderId}/transitions` — user (implemented)
 
-The single endpoint for every status change (see `ARCHITECTURE.md` §6, transitions T1–T11). The server works out who the caller is to the order: an admin with `actingAs: "RESTAURANT_SIM"` is the simulated restaurant (Kitchen Console; the response is the kitchen view); the order's customer is `CUSTOMER`; a courier is `COURIER` (accepting an offer, or moving their own delivery along); anyone else gets `404`. Admin actions as `ADMIN` (T6, T7, T9, T11 resolutions) are applied by the same referee and arrive in the UI in Phase 6.
+The single endpoint for every status change (see `ARCHITECTURE.md` §6, transitions T1–T11). The server works out who the caller is to the order: an admin with `actingAs: "RESTAURANT_SIM"` is the simulated restaurant (Kitchen Console; the response is the kitchen view); the order's customer is `CUSTOMER`; a courier is `COURIER` (accepting an offer, or moving their own delivery along); an admin otherwise acts as `ADMIN` (resolutions T2, T4, T6, T7, T9, T11, each with a reason, each audited as `order.admin_<status>`; the response is the admin view); anyone else gets `404`. An admin who placed the order acts as its customer; an admin with a courier profile accepting an offer acts as a courier. When an admin takes a delivery away (T7, T9, T11), the courier is notified as well as the customer.
 
 - **Request:** `{ "toStatus": OrderStatus, "reason"?: string ≤ 300, "actingAs"?: "RESTAURANT_SIM", "expectedVersion"?: int }`
   - `actingAs: "RESTAURANT_SIM"` is accepted **only** from admins (Kitchen Console). Otherwise the actor type is derived from the caller's relationship: owner → `CUSTOMER`, courier → `COURIER`, admin → `ADMIN`.
@@ -417,25 +419,26 @@ Orders in `PLACED`, `CONFIRMED`, or `READY_FOR_PICKUP`, oldest first (≤ 100): 
 
 All admin mutations write an `audit_events` row (actor, action, target, before/after of changed fields, reason, request ID).
 
-### `GET /admin/metrics`
-`{ "ordersToday": { "PLACED": n, …, "DELIVERED": n }, "onlineCouriers": n, "pendingApplications": n, "simulatedGmvTodayCents": n, "activeDeliveries": n }`
+### `GET /admin/metrics` (implemented)
+`{ "ordersToday": { "PLACED": n, …, "DELIVERED": n }, "onlineCouriers": n, "pendingApplications": n, "simulatedGmvTodayCents": n, "activeDeliveries": n }`. "Today" is the campus calendar day; GMV is demo payments captured today (delivered orders).
 
-### `GET /admin/users?q=&role=&suspended=` → list of `{ "id", "name", "email", "role", "emailVerified", "suspendedAt", "courierStatus", "createdAt" }`
+### `GET /admin/users?q=&role=&suspended=&limit=&cursor=` (implemented) → `{ "data": [{ "id", "name", "email", "role", "emailVerified", "suspendedAt", "courierStatus", "createdAt" }], "nextCursor" }`, newest first; `q` matches name or email (wildcards literal).
 
-### `PATCH /admin/users/{userId}`
-- **Request:** `{ "suspended": boolean, "reason": string 1–300 }` → **200** user.
-- **Errors:** `422` when targeting self or another admin.
-- **Side effects:** set/clear `suspended_at`; on suspend, delete all sessions and set courier offline; audit `user.suspend|unsuspend`.
-- Changing roles is **not** supported via the API.
+### `PATCH /admin/users/{userId}` (implemented)
+- **Request:** `{ "suspended": boolean, "reason": string 1–300 }` → **200** user. Repeating the current state changes nothing and writes no audit row.
+- **Errors:** `404`; `422 CANNOT_MODERATE_SELF`, `CANNOT_MODERATE_ADMIN`; `409 ACTIVE_DELIVERY_IN_PROGRESS` when suspending a courier mid-delivery (resolve the order first).
+- **Side effects:** set/clear `suspended_at`; on suspend, delete all sessions and set courier offline; audit `user.suspend|unsuspend` with the reason.
+- Changing roles is **not** supported via the API (`pnpm admin:create` only).
 
-### `GET /admin/couriers?status=PENDING` → list of courier profiles with user name/email.
+### `GET /admin/couriers?status=` (implemented) → `{ "data": [{ "id", "userId", "name", "email", "status", "transportMode", "isOnline", "appliedAt", "reviewedAt", "reviewedBy", "reviewNote", "completedDeliveries", "hasActiveDelivery" }] }`, oldest application first (≤ 200).
 
-### `POST /admin/couriers/{courierId}/decision`
-- **Request:** `{ "decision": "APPROVE" | "REJECT" | "SUSPEND" | "REINSTATE", "note"?: string ≤ 500 }`
-- Valid from-states: `APPROVE`/`REJECT` from `PENDING`; `SUSPEND` from `APPROVED`; `REINSTATE` from `SUSPENDED`. Otherwise `409 INVALID_TRANSITION`.
-- **Side effects:** status, `reviewed_at/by`, `review_note`; suspend forces offline; notification `COURIER_APPLICATION_DECIDED`; audit.
+### `POST /admin/couriers/{courierId}/decision` (implemented)
+- **Request:** `{ "decision": "APPROVE" | "REJECT" | "SUSPEND" | "REINSTATE", "note"?: string ≤ 500 }` → **200** courier.
+- Valid from-states: `APPROVE`/`REJECT` from `PENDING`; `SUSPEND` from `APPROVED`; `REINSTATE` from `SUSPENDED`. Otherwise `409 INVALID_TRANSITION`. Deciding on your own profile → `422 CANNOT_MODERATE_SELF`. Suspending mid-delivery → `409 ACTIVE_DELIVERY_IN_PROGRESS`.
+- **Side effects:** status, `reviewed_at/by`, `review_note`; anything but approved forces offline; notification `COURIER_APPLICATION_DECIDED`; audit `courier.<decision>`.
+- **Concurrency:** the decision locks the courier profile (`FOR UPDATE`) and accepting a delivery re-reads it under `FOR SHARE`, so a suspension and an accept can't both succeed.
 
-### Restaurants and menus
+### Restaurants and menus (Phase 6b, essentials only — see `DEVELOPMENT_PLAN.md`)
 - `GET /admin/restaurants?includeDeleted=` · `POST /admin/restaurants` — `{ name, slug, description?, locationId, cuisineSlugs[], imagePath?, pickupNotes?, isAcceptingOrders }` → **201**; `409` on duplicate slug.
 - `PATCH /admin/restaurants/{id}` — any subset of the create fields → **200**.
 - `DELETE /admin/restaurants/{id}` — soft delete → **204**; `409` if it has non-terminal orders.
@@ -446,9 +449,9 @@ All admin mutations write an `audit_events` row (actor, action, target, before/a
 - `DELETE /admin/menu-items/{id}` — soft delete; existing carts containing it show `ITEM_UNAVAILABLE`.
 - `PUT /admin/menu-items/{id}/option-groups` — full option tree `[{ id?, name, minSelect, maxSelect, options: [{ id?, name, priceDeltaCents, isAvailable }] }]`; omitted existing groups/options are soft-deleted.
 
-### `GET /admin/orders`
-- **Query:** `status?` (repeatable), `restaurantId?`, `q?` (order number / customer email), `limit`, `cursor`.
-- Kitchen Console uses `status=PLACED&status=CONFIRMED` and the transitions endpoint with `actingAs: "RESTAURANT_SIM"`. Order detail uses `GET /orders/{id}` (admin projection).
+### `GET /admin/orders` (implemented)
+- **Query:** `status?` (repeatable), `restaurantId?`, `q?` (order number, customer email, or customer name), `limit`, `cursor`.
+- **Response:** `{ "data": [{ "id", "orderNumber", "status", "restaurantName", "customerName", "customerEmail", "totalCents", "createdAt", "statusUpdatedAt" }], "nextCursor" }`, newest first. Order detail uses `GET /orders/{id}` (admin projection). The Kitchen Console has its own endpoint (`GET /admin/kitchen`).
 
 ### `GET /admin/audit-events` — admin (implemented)
 - **Query (strict):** `limit` 1–50 (default 20), `cursor?` (opaque), `targetType?`, `targetId?`, `actorUserId?` (uuid). Unknown parameters → `400`.
@@ -468,8 +471,9 @@ All admin mutations write an `audit_events` row (actor, action, target, before/a
 - The cursor carries the row's microsecond timestamp, so rows written in the same millisecond are never skipped or repeated. A malformed cursor → `400`.
 - Rows are append-only: the app's database role has no `UPDATE`/`DELETE` on `audit_events`. `SYSTEM` rows (e.g. from `pnpm admin:create`) have `actor: null` and a label in `metadata.via`.
 
-### `POST /admin/demo/reset`
-- **Available only when** `APP_ENV ≠ production` **and** `DEMO_RESET_ENABLED=true`; otherwise **404** (the endpoint behaves as if it doesn't exist).
-- **Request:** `{ "confirm": "RESET DEMO DATA" }`
-- **Response 200:** `{ "resetAt", "fixtures": { "restaurants": n, "accounts": n } }`
-- **Side effects:** deletes orders/carts/notifications/reviews/assignments for demo accounts, restores demo fixtures to their initial state, writes audit event `demo.reset`. Never touches non-demo accounts.
+### `POST /admin/demo/reset` (implemented)
+- **Available only when** `APP_ENV ≠ production` **and** `DEMO_RESET_ENABLED=true`; otherwise **404** (checked before anything else, so the endpoint behaves as if it doesn't exist). The app refuses to start with `DEMO_RESET_ENABLED=true` in production.
+- **Request:** `{ "confirm": "RESET DEMO DATA" }` (anything else → `400`).
+- **Response 200:** `{ "resetAt", "removed": { "orders", "carts", "notifications" }, "fixtures": { "restaurants": n, "accounts": n } }`
+- **Errors:** `409 ACTIVE_DELIVERY_IN_PROGRESS` while a demo courier is delivering a non-demo customer's order (nothing is changed).
+- **Side effects (one transaction):** deletes the demo accounts' orders (with items, history, assignments, payment by cascade), carts, notifications, and declined offers; restores the demo accounts' profiles and unsuspends them; restores the sample catalog; writes audit event `demo.reset`. Never touches non-demo accounts, passwords, or the audit log.

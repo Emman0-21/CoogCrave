@@ -14,8 +14,10 @@ CoogCrave is a student-powered food delivery platform for the University of Hous
 | 2. Project foundation | Complete (merged in PR #1) |
 | 3. Database, accounts, and access control | Complete (PR #2; real restaurant names in PR #3) |
 | 4. Customer ordering | Complete (PR #4) |
-| 5. Courier delivery | **In review**: courier application, go online, offers, accept (one winner, always), pickup, delivery, give back, failed delivery, history, simulated earnings; basic Kitchen Console for admins |
-| 6–8. Admin tools, polish, release | Not started |
+| 5. Courier delivery | Complete (PR #5) |
+| 6a. Admin operations | **In review**: dashboard, courier approval, user suspension, every order's full record with problem fixes, activity log, demo reset |
+| 6b. Notifications, reviews, menu editing | Not started |
+| 7–8. Polish, release | Not started |
 
 A full order now runs end to end: a student orders, an admin plays the restaurant in the Kitchen Console, a student courier accepts and delivers it, and the customer tracks each step. Progress is tracked in [docs/PROGRESS.md](docs/PROGRESS.md).
 
@@ -56,7 +58,7 @@ pnpm dev                             # http://localhost:3000
 | `customer@demo.coogcrave.test` | Student |
 | `courier@demo.coogcrave.test` | Student with an approved courier profile |
 | `applicant@demo.coogcrave.test` | Student whose courier application is pending |
-| `admin@demo.coogcrave.test` | Admin (activity log at `/admin`, Kitchen Console at `/admin/kitchen`) |
+| `admin@demo.coogcrave.test` | Admin (dashboard at `/admin`: couriers, users, orders, Kitchen Console, activity log) |
 
 **Try a whole delivery** with three browser windows (one normal, two private, so each keeps its own sign-in):
 
@@ -131,8 +133,9 @@ docs/               requirements, architecture, API, database, threat model, pla
 - Restaurant steps are played by an admin in the Kitchen Console; no real restaurant is connected. The seed data uses real UH restaurant names, but their menus, prices, and hours are invented samples; none of these venues takes part in or endorses CoogCrave.
 - Restaurants follow their sample hours in campus time, so some are closed depending on when you look.
 - Emails go to a local folder; no email provider is connected, and deployed environments refuse to start until one is (Phase 8).
-- No admin screens beyond the activity log and Kitchen Console yet (suspending users, approving couriers, resolving problem orders, and editing menus arrive in Phase 6). Until then the demo seed provides the approved courier.
-- No notifications inbox or reviews yet (Phase 6); notifications are already recorded with each status change.
+- Restaurants and menus can't be edited in the app yet (Phase 6b); they come from `pnpm db:seed`.
+- No notifications inbox or reviews yet (Phase 6b); notifications are already recorded with each status change and admin decision.
+- Demo reset (on the admin dashboard) only appears with `DEMO_RESET_ENABLED=true` in `.env`, and never in production.
 - On narrow phones the header wraps to two rows (Phase 7 visual pass).
 - No deployment target configured; the app runs locally and in CI only.
 - All payments, restaurant actions, and courier earnings are simulations, labeled as such in the UI. Nobody is charged or paid.

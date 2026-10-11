@@ -20,3 +20,13 @@ export const COURIER_ACTION_LIMIT: RouteRateLimit = {
   by: "user",
   rule: { name: "api.courier_action.user", limit: 60, windowSeconds: 60 },
 };
+
+export const ADMIN_ACTION_LIMIT: RouteRateLimit = {
+  by: "user",
+  rule: { name: "api.admin_action.user", limit: 60, windowSeconds: 60 },
+};
+
+export const DEMO_RESET_LIMIT: RouteRateLimit = {
+  by: "user",
+  rule: { name: "api.demo_reset.user", limit: 5, windowSeconds: 600 },
+};

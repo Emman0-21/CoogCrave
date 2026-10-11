@@ -19,6 +19,26 @@ describe("parseConfig", () => {
     expect(Object.isFrozen(config)).toBe(true);
   });
 
+  it("keeps demo reset off unless asked, and refuses it in production (THREAT_MODEL T-29)", () => {
+    expect(parseConfig(valid).DEMO_RESET_ENABLED).toBe(false);
+    expect(parseConfig({ ...valid, DEMO_RESET_ENABLED: "true" }).DEMO_RESET_ENABLED).toBe(true);
+    expect(captureConfigError({ ...valid, DEMO_RESET_ENABLED: "yes" }).problems).toEqual([
+      "DEMO_RESET_ENABLED must be true or false",
+    ]);
+    const production = {
+      ...valid,
+      APP_ENV: "production",
+      APP_URL: "https://coogcrave.example",
+      BETTER_AUTH_SECRET: "x".repeat(40),
+      DEMO_RESET_ENABLED: "true",
+    };
+    expect(captureConfigError(production).problems).toEqual(
+      expect.arrayContaining([
+        "DEMO_RESET_ENABLED can't be true in production; demo reset deletes data (THREAT_MODEL T-29)",
+      ]),
+    );
+  });
+
   it("coerces numeric settings from strings", () => {
     expect(parseConfig({ ...valid, DB_POOL_MAX: "4" }).DB_POOL_MAX).toBe(4);
   });

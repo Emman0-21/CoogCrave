@@ -5,6 +5,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Database, Transaction } from "@/server/db/client";
 import { uniqueViolationConstraint } from "@/server/db/pg-errors";
 import {
+  courierProfiles,
   deliveryAssignments,
   deliveryOfferDeclines,
   orders,
@@ -19,7 +20,7 @@ import { getPaymentGateway, type PaymentGateway } from "@/server/payments/gatewa
 import type { ActorType, AssignmentEndReason, NotificationType, OrderStatus } from "@/shared/enums";
 
 import { recordAudit } from "./audit";
-import { notifyOrder } from "./notifications";
+import { notifyCourierOfAdminAction, notifyOrder } from "./notifications";
 
 /**
  * The single referee for every order status change (docs/ARCHITECTURE.md §6–7). Callers work out who
@@ -160,8 +161,21 @@ export async function transitionOrder(
       if (assignment?.courierId === request.courier!.id) {
         return { result: { changed: false, status: current.status }, followUps: [] };
       }
+      // Re-read the courier under a shared lock: an admin suspending them (which takes FOR UPDATE on the
+      // same row) either finishes first, and we see it here, or waits until this accept commits and then
+      // sees the active delivery (admin-people.ts).
+      const [fresh] = await tx
+        .select({ status: courierProfiles.status, isOnline: courierProfiles.isOnline })
+        .from(courierProfiles)
+        .where(eq(courierProfiles.id, request.courier!.id))
+        .for("share");
       const refusal = acceptRefusal(
-        { ...request.courier!, hasActiveDelivery: await courierIsBusy(tx, request.courier!.id) },
+        {
+          id: request.courier!.id,
+          status: fresh?.status ?? "REJECTED",
+          isOnline: fresh?.isOnline ?? false,
+          hasActiveDelivery: await courierIsBusy(tx, request.courier!.id),
+        },
         request.actorUserId ?? "",
         current,
       );
@@ -279,6 +293,20 @@ export async function transitionOrder(
     if (notice) {
       await notifyOrder(tx, notice, {
         userId: current.customerId,
+        orderId: current.id,
+        orderNumber: current.orderNumber,
+        restaurantName: current.restaurantName,
+      });
+    }
+
+    // When an admin takes a delivery away from a courier, the courier is told too (T7, T9, T11).
+    if (request.actorType === "ADMIN" && assignment && notice && ["T7", "T9", "T11"].includes(rule.id)) {
+      const [courier] = await tx
+        .select({ userId: courierProfiles.userId })
+        .from(courierProfiles)
+        .where(eq(courierProfiles.id, assignment.courierId));
+      await notifyCourierOfAdminAction(tx, notice, {
+        userId: courier!.userId,
         orderId: current.id,
         orderNumber: current.orderNumber,
         restaurantName: current.restaurantName,

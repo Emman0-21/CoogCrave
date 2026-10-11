@@ -42,8 +42,20 @@ const envSchema = z
     MAIL_TRANSPORT: z.enum(["file"]).default("file"),
     MAIL_FROM: z.string().min(3).default("CoogCrave <no-reply@coogcrave.test>"),
     MAIL_OUTBOX_DIR: z.string().min(1).default(".data/mail"),
+    // Lets admins wipe demo-account activity and restore the sample catalog (PRD ADM-10). Off by default.
+    DEMO_RESET_ENABLED: z
+      .enum(["true", "false"], "must be true or false")
+      .default("false")
+      .transform((value) => value === "true"),
   })
   .superRefine((env, ctx) => {
+    if (env.APP_ENV === "production" && env.DEMO_RESET_ENABLED) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["DEMO_RESET_ENABLED"],
+        message: "can't be true in production; demo reset deletes data (THREAT_MODEL T-29)",
+      });
+    }
     const deployed = env.APP_ENV === "production" || env.APP_ENV === "preview";
     if (!deployed) return;
     if (!env.APP_URL.startsWith("https://")) {

@@ -26,6 +26,7 @@ import {
 } from "@/server/domain/delivery";
 import { allowedTransitions, checkTransition, TERMINAL_STATUSES } from "@/server/domain/order-state-machine";
 import { AppError } from "@/server/http/errors";
+import type { AdminOrderView } from "@/shared/schemas/admin";
 import type { CourierOrderView, KitchenOrderView } from "@/shared/schemas/delivery";
 import type {
   OrderDetailView,
@@ -34,6 +35,7 @@ import type {
   TransitionInput,
 } from "@/shared/schemas/ordering";
 
+import { loadAdminOrder } from "./admin-orders";
 import { loadKitchenOrder } from "./kitchen";
 import { transitionOrder } from "./order-workflow";
 import { decodeCursor, encodeCursor, microsecondTimestamp } from "./pagination";
@@ -44,7 +46,7 @@ import { decodeCursor, encodeCursor, microsecondTimestamp } from "./pagination";
  * Visibility (THREAT_MODEL T-01, T-05): the customer who placed an order sees the customer projection;
  * the courier assigned to it sees the courier projection while the delivery is active and for 24 hours
  * after; anyone else gets the same 404 as for an order that doesn't exist, so IDs can't be probed.
- * The admin projection arrives with the admin tools (Phase 6); the Kitchen Console has its own view.
+ * Admins see the admin projection of every order; the Kitchen Console has its own view.
  */
 
 const NOT_FOUND = () => new AppError("NOT_FOUND", "We couldn't find that order.");
@@ -277,7 +279,12 @@ export async function getOrderForViewer(
   actor: Actor,
   orderId: string,
   db: Database = getDb(),
-): Promise<OrderDetailView | CourierOrderView> {
+): Promise<OrderDetailView | CourierOrderView | AdminOrderView> {
+  if (actor.role === "ADMIN") {
+    const asAdmin = await loadAdminOrder(db, orderId);
+    if (!asAdmin) throw NOT_FOUND();
+    return asAdmin;
+  }
   const asCustomer = await loadCustomerOrder(db, orderId, actor.userId);
   if (asCustomer) return asCustomer;
   if (actor.courier) {
@@ -354,6 +361,7 @@ export async function listOrders(
  * hands the move to the referee (order-workflow.ts):
  *  - an admin sending `actingAs: "RESTAURANT_SIM"` is the simulated restaurant (Kitchen Console), audited;
  *  - the order's customer is CUSTOMER (can cancel while PLACED);
+ *  - an admin is ADMIN (resolutions T2, T4, T6, T7, T9, T11, each needing a reason), audited;
  *  - a courier is COURIER, either accepting an offer or moving their own delivery along;
  *  - anyone else gets 404.
  */
@@ -363,7 +371,7 @@ export async function orderTransition(
   input: TransitionInput,
   requestId?: string,
   db: Database = getDb(),
-): Promise<OrderDetailView | CourierOrderView | KitchenOrderView> {
+): Promise<OrderDetailView | CourierOrderView | KitchenOrderView | AdminOrderView> {
   if (input.actingAs === "RESTAURANT_SIM") {
     if (actor.role !== "ADMIN") throw new AppError("FORBIDDEN", "Only admins can act for a restaurant.");
     await transitionOrder(db, {
@@ -398,6 +406,21 @@ export async function orderTransition(
       expectedVersion: input.expectedVersion,
     });
     return getOrder(actor, orderId, db);
+  }
+
+  if (actor.role === "ADMIN" && !acceptingOffer) {
+    await transitionOrder(db, {
+      orderId,
+      toStatus: input.toStatus,
+      actorType: "ADMIN",
+      actorUserId: actor.userId,
+      reason: input.reason,
+      expectedVersion: input.expectedVersion,
+      audit: { actor, requestId },
+    });
+    const view = await loadAdminOrder(db, orderId);
+    if (!view) throw NOT_FOUND();
+    return view;
   }
 
   if (actor.courier) {

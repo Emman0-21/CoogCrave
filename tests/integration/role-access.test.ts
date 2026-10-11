@@ -4,7 +4,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { GET as healthGet } from "@/app/api/health/route";
 import { GET as auditGet } from "@/app/api/v1/admin/audit-events/route";
+import { POST as courierDecisionPost } from "@/app/api/v1/admin/couriers/[courierId]/decision/route";
+import { GET as adminCouriersGet } from "@/app/api/v1/admin/couriers/route";
+import { POST as demoResetPost } from "@/app/api/v1/admin/demo/reset/route";
 import { GET as kitchenGet } from "@/app/api/v1/admin/kitchen/route";
+import { GET as metricsGet } from "@/app/api/v1/admin/metrics/route";
+import { GET as adminOrdersGet } from "@/app/api/v1/admin/orders/route";
+import { PATCH as adminUserPatch } from "@/app/api/v1/admin/users/[userId]/route";
+import { GET as adminUsersGet } from "@/app/api/v1/admin/users/route";
 import { GET as locationsGet } from "@/app/api/v1/locations/route";
 import { DELETE as cartItemDelete, PATCH as cartItemPatch } from "@/app/api/v1/cart/items/[cartItemId]/route";
 import { POST as cartItemsPost } from "@/app/api/v1/cart/items/route";
@@ -234,6 +241,48 @@ describe("role-access matrix", () => {
       name: "GET /api/v1/admin/kitchen",
       call: (jar: CookieJar) => kitchenGet(appRequest("/api/v1/admin/kitchen", { jar })),
     },
+    {
+      name: "GET /api/v1/admin/metrics",
+      call: (jar: CookieJar) => metricsGet(appRequest("/api/v1/admin/metrics", { jar })),
+    },
+    {
+      name: "GET /api/v1/admin/users",
+      call: (jar: CookieJar) => adminUsersGet(appRequest("/api/v1/admin/users", { jar })),
+    },
+    {
+      name: "PATCH /api/v1/admin/users/{id}",
+      call: (jar: CookieJar) =>
+        adminUserPatch(
+          appRequest(`/api/v1/admin/users/${missingId}`, {
+            method: "PATCH",
+            body: { suspended: true, reason: "Matrix" },
+            jar,
+          }),
+          ctx({ userId: missingId }),
+        ),
+    },
+    {
+      name: "GET /api/v1/admin/couriers",
+      call: (jar: CookieJar) => adminCouriersGet(appRequest("/api/v1/admin/couriers", { jar })),
+    },
+    {
+      name: "POST /api/v1/admin/couriers/{id}/decision",
+      call: (jar: CookieJar) =>
+        courierDecisionPost(
+          appRequest(`/api/v1/admin/couriers/${missingId}/decision`, { body: { decision: "APPROVE" }, jar }),
+          ctx({ courierId: missingId }),
+        ),
+    },
+    {
+      name: "GET /api/v1/admin/orders",
+      call: (jar: CookieJar) => adminOrdersGet(appRequest("/api/v1/admin/orders", { jar })),
+    },
+    {
+      // Switched off in tests (DEMO_RESET_ENABLED=false): even admins get 404.
+      name: "POST /api/v1/admin/demo/reset",
+      call: (jar: CookieJar) =>
+        demoResetPost(appRequest("/api/v1/admin/demo/reset", { body: { confirm: "RESET DEMO DATA" }, jar })),
+    },
     // Last: it gives the student and admin a (pending) courier profile.
     {
       name: "POST /api/v1/courier/application",
@@ -273,6 +322,15 @@ describe("role-access matrix", () => {
     student: F,
     courier: status,
     admin: F,
+    suspended: F,
+    unverified: F,
+  });
+  /** Admins only. */
+  const adminOnly = (status: number) => ({
+    anonymous: U,
+    student: F,
+    courier: F,
+    admin: status,
     suspended: F,
     unverified: F,
   });
@@ -316,6 +374,13 @@ describe("role-access matrix", () => {
       suspended: F,
       unverified: F,
     },
+    "GET /api/v1/admin/metrics": adminOnly(200),
+    "GET /api/v1/admin/users": adminOnly(200),
+    "PATCH /api/v1/admin/users/{id}": adminOnly(404),
+    "GET /api/v1/admin/couriers": adminOnly(200),
+    "POST /api/v1/admin/couriers/{id}/decision": adminOnly(404),
+    "GET /api/v1/admin/orders": adminOnly(200),
+    "POST /api/v1/admin/demo/reset": adminOnly(404),
     // The approved courier already has a profile: 409.
     "POST /api/v1/courier/application": {
       anonymous: U,

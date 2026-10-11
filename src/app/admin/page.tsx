@@ -1,117 +1,120 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { buttonClasses } from "@/components/ui/button";
-import { Notice } from "@/components/ui/notice";
+import { AdminPage } from "@/components/features/admin/admin-page";
+import { DemoReset } from "@/components/features/admin/demo-reset";
+import { ORDER_STATUS_LABEL } from "@/components/features/admin/labels";
 import { requirePageAccess } from "@/server/auth/page-guards";
-import { AppError } from "@/server/http/errors";
-import { type AuditEventView, listAuditEvents } from "@/server/services/audit";
+import { demoResetAvailable, getMetrics } from "@/server/services/admin-ops";
+import { formatCents } from "@/shared/format";
+import type { OrderStatus } from "@/shared/enums";
 
 export const metadata: Metadata = { title: "Admin" };
 
-const PAGE_SIZE = 25;
+const PIPELINE: OrderStatus[] = ["PLACED", "CONFIRMED", "READY_FOR_PICKUP", "ASSIGNED", "PICKED_UP"];
+const FINISHED: OrderStatus[] = ["DELIVERED", "CANCELLED", "DELIVERY_FAILED"];
 
-const timeFormat = new Intl.DateTimeFormat("en-US", {
-  dateStyle: "medium",
-  timeStyle: "short",
-  timeZone: "America/Chicago",
-});
-
-async function loadPage(cursor: string | undefined) {
-  try {
-    return { page: await listAuditEvents({ limit: PAGE_SIZE, cursor }), badCursor: false };
-  } catch (error) {
-    if (error instanceof AppError && error.code === "VALIDATION_ERROR") {
-      return { page: await listAuditEvents({ limit: PAGE_SIZE }), badCursor: true };
-    }
-    throw error;
-  }
-}
-
-function who(event: AuditEventView): string {
-  if (event.actor) return `${event.actor.name} (${event.actor.email})`;
-  const via = typeof event.metadata.via === "string" ? event.metadata.via : "script";
-  return `System (${via})`;
-}
-
-export default async function AdminPage(props: PageProps<"/admin">) {
+/** Admin home (PRD ADM-1): today's orders by where they are, and what needs someone's attention. */
+export default async function AdminHome() {
   await requirePageAccess("admin", "/admin");
-  const raw = (await props.searchParams).cursor;
-  const { page, badCursor } = await loadPage(typeof raw === "string" ? raw : undefined);
+  const metrics = await getMetrics();
+  const placedToday = Object.values(metrics.ordersToday).reduce((a, b) => a + b, 0);
+  const waitingForCourier = metrics.ordersToday.READY_FOR_PICKUP;
 
   return (
-    <main className="mx-auto w-full max-w-5xl flex-1 px-5 pt-6 pb-16 sm:px-8 md:pt-12">
-      <h1 className="font-display text-4xl leading-[1.05] font-black font-wide sm:text-5xl">Admin</h1>
-      <p className="mt-4 max-w-prose text-lg text-ink-muted">
-        Every administrative action is recorded here and can&apos;t be edited or deleted. Courier approvals,
-        restaurant management, and order tools arrive in later releases.
-      </p>
-      <p className="mt-6">
-        <Link href="/admin/kitchen" className={buttonClasses("primary")}>
-          Open the Kitchen Console
-        </Link>
-      </p>
-
-      <section aria-labelledby="audit-heading" className="mt-10">
-        <h2 id="audit-heading" className="font-display text-2xl font-extrabold">
-          Activity log
+    <AdminPage title="Today" intro="Orders placed today (campus time), by where they are now.">
+      <section aria-labelledby="pipeline-heading" className="mt-8">
+        <h2 id="pipeline-heading" className="sr-only">
+          Orders today
         </h2>
-        {badCursor && (
-          <Notice tone="error" className="mt-4">
-            That page link wasn&apos;t valid, so this shows the newest activity.
-          </Notice>
-        )}
-        {page.data.length === 0 ? (
-          <p className="mt-4 text-ink-muted">
-            No administrative actions yet. Creating an admin account from the command line is the first thing
-            you&apos;ll see here.
-          </p>
-        ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[40rem] border-collapse text-left">
-              <caption className="sr-only">Administrative actions, newest first</caption>
-              <thead>
-                <tr className="border-b border-line-strong">
-                  <th scope="col" className="py-2 pr-4 font-bold">
-                    When
-                  </th>
-                  <th scope="col" className="py-2 pr-4 font-bold">
-                    Who
-                  </th>
-                  <th scope="col" className="py-2 pr-4 font-bold">
-                    Action
-                  </th>
-                  <th scope="col" className="py-2 font-bold">
-                    Target
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {page.data.map((event) => (
-                  <tr key={event.id} className="border-b border-line align-top">
-                    <td className="py-3 pr-4 whitespace-nowrap tabular-nums">
-                      <time dateTime={event.createdAt}>{timeFormat.format(new Date(event.createdAt))}</time>
-                    </td>
-                    <td className="py-3 pr-4 break-all">{who(event)}</td>
-                    <td className="py-3 pr-4 font-bold">{event.action}</td>
-                    <td className="py-3 break-all text-ink-muted">
-                      {event.targetType} {event.targetId}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {page.nextCursor && (
-          <Link
-            href={`/admin?cursor=${encodeURIComponent(page.nextCursor)}`}
-            className="mt-6 inline-block font-bold underline underline-offset-4"
-          >
-            Show older activity
-          </Link>
-        )}
+        <ol className="grid grid-cols-2 border-t border-l border-line sm:grid-cols-5">
+          {PIPELINE.map((status) => (
+            <li key={status} className="border-r border-b border-line p-4">
+              <Link
+                href={`/admin/orders?status=${status}`}
+                className="group block"
+                aria-label={`${metrics.ordersToday[status]} ${ORDER_STATUS_LABEL[status].toLowerCase()}`}
+              >
+                <span className="block font-display text-4xl font-black tabular-nums">
+                  {metrics.ordersToday[status]}
+                </span>
+                <span className="text-ink-muted group-hover:underline">{ORDER_STATUS_LABEL[status]}</span>
+              </Link>
+            </li>
+          ))}
+        </ol>
+        <p className="mt-3 text-ink-muted">
+          {placedToday} placed today. Finished:{" "}
+          {FINISHED.map((s, i) => (
+            <span key={s}>
+              {i > 0 && ", "}
+              {metrics.ordersToday[s]} {ORDER_STATUS_LABEL[s].toLowerCase()}
+            </span>
+          ))}
+          .
+        </p>
       </section>
-    </main>
+
+      <section aria-labelledby="attention-heading" className="mt-10">
+        <h2 id="attention-heading" className="font-display text-2xl font-extrabold">
+          Needs attention
+        </h2>
+        <ul className="mt-3 divide-y divide-line border-y border-line">
+          <li className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 py-3">
+            <span>
+              <strong className="tabular-nums">{metrics.pendingApplications}</strong> courier{" "}
+              {metrics.pendingApplications === 1 ? "application" : "applications"} waiting for review
+            </span>
+            <Link href="/admin/couriers" className="font-bold underline underline-offset-4">
+              Review applications
+            </Link>
+          </li>
+          <li className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 py-3">
+            <span>
+              <strong className="tabular-nums">{waitingForCourier}</strong> ready{" "}
+              {waitingForCourier === 1 ? "order" : "orders"} waiting for a courier, with{" "}
+              <strong className="tabular-nums">{metrics.onlineCouriers}</strong>{" "}
+              {metrics.onlineCouriers === 1 ? "courier" : "couriers"} online
+            </span>
+            <Link href="/admin/kitchen" className="font-bold underline underline-offset-4">
+              Open the Kitchen Console
+            </Link>
+          </li>
+          <li className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 py-3">
+            <span>
+              <strong className="tabular-nums">{metrics.activeDeliveries}</strong>{" "}
+              {metrics.activeDeliveries === 1 ? "delivery" : "deliveries"} in progress
+            </span>
+            <Link
+              href="/admin/orders?status=ASSIGNED&status=PICKED_UP"
+              className="font-bold underline underline-offset-4"
+            >
+              See deliveries
+            </Link>
+          </li>
+        </ul>
+        <p className="mt-4 text-ink-muted">
+          Simulated sales today:{" "}
+          <strong className="text-ink">{formatCents(metrics.simulatedGmvTodayCents)}</strong> from delivered
+          orders. Demo payments only; nobody is charged.
+        </p>
+      </section>
+
+      {demoResetAvailable() && (
+        <section aria-labelledby="demo-heading" className="mt-12 border-t border-line pt-8">
+          <h2 id="demo-heading" className="font-display text-2xl font-extrabold">
+            Reset the demo
+          </h2>
+          <p className="mt-2 max-w-prose text-ink-muted">
+            Deletes every order, cart, and notification belonging to the demo accounts, puts those accounts
+            back to how they started, and restores the sample restaurants. Other accounts and the activity log
+            aren&apos;t touched. Only available outside production.
+          </p>
+          <div className="mt-4">
+            <DemoReset />
+          </div>
+        </section>
+      )}
+    </AdminPage>
   );
 }
